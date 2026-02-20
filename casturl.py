@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
-"""Discover Cast devices on the network, select one, and cast a URL to it."""
+"""Discover Cast/DLNA/Roku devices on the network, select one, and cast a URL."""
 
 import json
 import os
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+from html import escape as html_escape
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
-import pychromecast
+try:
+    import pychromecast
+    HAS_PYCHROMECAST = True
+except ImportError:
+    HAS_PYCHROMECAST = False
+
+_cast_browser = None
 
 
 def get_local_ip():
@@ -23,6 +35,248 @@ def get_local_ip():
     finally:
         s.close()
 
+
+# ---------------------------------------------------------------------------
+# Discovery helpers
+# ---------------------------------------------------------------------------
+
+def _xml_text(parent, tag, ns=None):
+    """Safe XML text extraction — returns '' if element missing."""
+    if ns:
+        tag = f"{{{ns}}}{tag}"
+    el = parent.find(tag)
+    return el.text.strip() if el is not None and el.text else ""
+
+
+def _parse_dlna_description(location_url):
+    """Fetch a UPnP device description XML and extract useful fields.
+
+    Returns a device dict or None.
+    """
+    try:
+        req = urllib.request.Request(location_url, headers={"User-Agent": "casturl/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            xml_bytes = resp.read()
+    except Exception:
+        return None
+
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return None
+
+    ns = "urn:schemas-upnp-org:device-1-0"
+    device_el = root.find(f"{{{ns}}}device")
+    if device_el is None:
+        return None
+
+    friendly_name = _xml_text(device_el, "friendlyName", ns)
+    model = _xml_text(device_el, "modelName", ns) or _xml_text(device_el, "manufacturer", ns)
+
+    # Find AVTransport service controlURL
+    control_url = None
+    for service in device_el.iter(f"{{{ns}}}service"):
+        stype = _xml_text(service, "serviceType", ns)
+        if "AVTransport" in stype:
+            ctrl = _xml_text(service, "controlURL", ns)
+            if ctrl:
+                parsed = urlparse(location_url)
+                base = f"{parsed.scheme}://{parsed.hostname}:{parsed.port or 80}"
+                control_url = base + ctrl if ctrl.startswith("/") else base + "/" + ctrl
+            break
+
+    if not control_url:
+        return None
+
+    parsed_loc = urlparse(location_url)
+    return {
+        "name": friendly_name or parsed_loc.hostname,
+        "model": model or "UPnP Renderer",
+        "protocol": "dlna",
+        "host": parsed_loc.hostname,
+        "port": parsed_loc.port or 80,
+        "cast_obj": None,
+        "control_url": control_url,
+    }
+
+
+def discover_dlna(timeout=5):
+    """SSDP M-SEARCH for UPnP MediaRenderer devices."""
+    target = "urn:schemas-upnp-org:device:MediaRenderer:1"
+    mx = min(timeout, 5)
+    msg = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        "HOST: 239.255.255.250:1900\r\n"
+        "MAN: \"ssdp:discover\"\r\n"
+        f"MX: {mx}\r\n"
+        f"ST: {target}\r\n"
+        "\r\n"
+    ).encode()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.settimeout(2)
+
+    # Send M-SEARCH multiple times — UDP is unreliable
+    for _ in range(3):
+        sock.sendto(msg, ("239.255.255.250", 1900))
+
+    locations = set()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            data, _ = sock.recvfrom(4096)
+            text = data.decode(errors="replace")
+            for line in text.splitlines():
+                if line.lower().startswith("location:"):
+                    locations.add(line.split(":", 1)[1].strip())
+        except socket.timeout:
+            # Re-send and keep listening until deadline
+            if time.time() < deadline:
+                sock.sendto(msg, ("239.255.255.250", 1900))
+                continue
+            break
+    sock.close()
+
+    devices = []
+    for loc in locations:
+        dev = _parse_dlna_description(loc)
+        if dev:
+            devices.append(dev)
+    return devices
+
+
+def _parse_roku_device(base_url):
+    """Fetch Roku device-info and return a device dict or None."""
+    try:
+        req = urllib.request.Request(
+            f"{base_url}query/device-info",
+            headers={"User-Agent": "casturl/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            xml_bytes = resp.read()
+    except Exception:
+        return None
+
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return None
+
+    friendly_name = _xml_text(root, "friendly-device-name") or _xml_text(root, "user-device-name")
+    model = _xml_text(root, "model-name") or _xml_text(root, "friendly-model-name")
+
+    parsed = urlparse(base_url)
+    return {
+        "name": friendly_name or parsed.hostname,
+        "model": model or "Roku",
+        "protocol": "roku",
+        "host": parsed.hostname,
+        "port": parsed.port or 8060,
+        "cast_obj": None,
+        "control_url": None,
+    }
+
+
+def discover_roku(timeout=5):
+    """SSDP M-SEARCH for Roku devices (roku:ecp)."""
+    mx = min(timeout, 5)
+    msg = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        "HOST: 239.255.255.250:1900\r\n"
+        "MAN: \"ssdp:discover\"\r\n"
+        f"MX: {mx}\r\n"
+        "ST: roku:ecp\r\n"
+        "\r\n"
+    ).encode()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.settimeout(2)
+
+    for _ in range(3):
+        sock.sendto(msg, ("239.255.255.250", 1900))
+
+    locations = set()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            data, _ = sock.recvfrom(4096)
+            text = data.decode(errors="replace")
+            for line in text.splitlines():
+                if line.lower().startswith("location:"):
+                    loc = line.split(":", 1)[1].strip()
+                    if not loc.endswith("/"):
+                        loc += "/"
+                    locations.add(loc)
+        except socket.timeout:
+            if time.time() < deadline:
+                sock.sendto(msg, ("239.255.255.250", 1900))
+                continue
+            break
+    sock.close()
+
+    devices = []
+    for loc in locations:
+        dev = _parse_roku_device(loc)
+        if dev:
+            devices.append(dev)
+    return devices
+
+
+def discover_cast(timeout=10):
+    """Discover Chromecast devices via pychromecast. Returns [] if not installed."""
+    global _cast_browser
+    if not HAS_PYCHROMECAST:
+        return []
+
+    chromecasts, browser = pychromecast.get_chromecasts(timeout=timeout)
+    _cast_browser = browser
+
+    devices = []
+    for cc in chromecasts:
+        devices.append({
+            "name": cc.cast_info.friendly_name,
+            "model": cc.cast_info.model_name or "Chromecast",
+            "protocol": "cast",
+            "host": str(cc.cast_info.host),
+            "port": cc.cast_info.port,
+            "cast_obj": cc,
+            "control_url": None,
+        })
+    return devices
+
+
+def discover_all(timeout=15):
+    """Run all discovery protocols in parallel, merge and deduplicate."""
+    results = []
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_dlna = pool.submit(discover_dlna, timeout)
+        fut_roku = pool.submit(discover_roku, timeout)
+        fut_cast = pool.submit(discover_cast, timeout)
+
+        for fut in [fut_dlna, fut_roku, fut_cast]:
+            try:
+                results.extend(fut.result())
+            except Exception:
+                pass
+
+    # Deduplicate by (host, protocol)
+    seen = set()
+    unique = []
+    for dev in results:
+        key = (dev["host"], dev["protocol"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(dev)
+
+    unique.sort(key=lambda d: d["name"].lower())
+    return unique
+
+
+# ---------------------------------------------------------------------------
+# URL probing / yt-dlp / ffmpeg / HTTP serving (unchanged)
+# ---------------------------------------------------------------------------
 
 def probe_url(url):
     """Use yt-dlp to get info about a URL.
@@ -202,11 +456,20 @@ class FileHandler(BaseHTTPRequestHandler):
 
     serve_path = None
 
+    # DLNA content features flag for MP4 (enables streaming on LG/Samsung)
+    DLNA_FLAGS = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+
     def do_HEAD(self):
+        print(f"  [HTTP] HEAD from {self.client_address[0]}")
         self._serve(head_only=True)
 
     def do_GET(self):
+        print(f"  [HTTP] GET from {self.client_address[0]} Range={self.headers.get('Range', 'none')}")
         self._serve(head_only=False)
+
+    def _send_dlna_headers(self):
+        self.send_header("contentFeatures.dlna.org", self.DLNA_FLAGS)
+        self.send_header("transferMode.dlna.org", "Streaming")
 
     def _serve(self, head_only=False):
         if not self.serve_path or not os.path.exists(self.serve_path):
@@ -229,6 +492,7 @@ class FileHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(length))
                 self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                 self.send_header("Accept-Ranges", "bytes")
+                self._send_dlna_headers()
                 self.end_headers()
 
                 if not head_only:
@@ -246,6 +510,7 @@ class FileHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "video/mp4")
                 self.send_header("Content-Length", str(file_size))
                 self.send_header("Accept-Ranges", "bytes")
+                self._send_dlna_headers()
                 self.end_headers()
 
                 if not head_only:
@@ -256,7 +521,7 @@ class FileHandler(BaseHTTPRequestHandler):
                                 break
                             self.wfile.write(chunk)
         except (ConnectionResetError, BrokenPipeError):
-            pass  # Client disconnected
+            print(f"  [HTTP] client disconnected")
 
     def log_message(self, format, *args):
         pass
@@ -386,39 +651,208 @@ def start_file_server(file_path):
     return server, local_url
 
 
-def select_device(chromecasts):
-    """Display devices and let the user pick one."""
-    if not chromecasts:
-        print("No Cast devices found.")
-        sys.exit(1)
+# ---------------------------------------------------------------------------
+# DLNA (UPnP AVTransport) control
+# ---------------------------------------------------------------------------
 
-    print(f"\nFound {len(chromecasts)} device(s):\n")
-    for i, cc in enumerate(chromecasts):
-        print(f"  [{i}] {cc.cast_info.friendly_name} ({cc.cast_info.model_name})")
+def _dlna_soap_action(control_url, action, args=""):
+    """Send a SOAP request to a DLNA AVTransport service."""
+    body = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"'
+        ' s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+        '<s:Body>'
+        f'<u:{action} xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+        '<InstanceID>0</InstanceID>'
+        f'{args}'
+        f'</u:{action}>'
+        '</s:Body>'
+        '</s:Envelope>'
+    ).encode("utf-8")
 
-    print()
-    while True:
-        choice = input("Select device number: ").strip()
+    req = urllib.request.Request(
+        control_url,
+        data=body,
+        headers={
+            "Content-Type": 'text/xml; charset="utf-8"',
+            "SOAPAction": f'"urn:schemas-upnp-org:service:AVTransport:1#{action}"',
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.read()
+
+
+def _cast_media_dlna(device, url, content_type):
+    """Cast a URL to a DLNA renderer via AVTransport SOAP."""
+    escaped_url = html_escape(url)
+    didl = (
+        '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"'
+        ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
+        ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+        '<item id="0" parentID="-1" restricted="1">'
+        '<dc:title>casturl</dc:title>'
+        f'<res protocolInfo="http-get:*:{content_type}:*">{escaped_url}</res>'
+        '<upnp:class>object.item.videoItem</upnp:class>'
+        '</item>'
+        '</DIDL-Lite>'
+    )
+    metadata = html_escape(didl)
+    args = (
+        f'<CurrentURI>{escaped_url}</CurrentURI>'
+        f'<CurrentURIMetaData>{metadata}</CurrentURIMetaData>'
+    )
+    _dlna_soap_action(device["control_url"], "SetAVTransportURI", args)
+    # Some TVs (e.g. LG webOS) need time to process the URI before Play
+    for attempt in range(3):
+        time.sleep(1)
         try:
-            idx = int(choice)
-            if 0 <= idx < len(chromecasts):
-                return chromecasts[idx]
-        except ValueError:
+            _dlna_soap_action(device["control_url"], "Play", "<Speed>1</Speed>")
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            print(f"  Play not ready, retrying ({attempt + 1}/3)...")
+    print(f"Now casting to {device['name']}")
+
+
+def _monitor_dlna(device):
+    """Poll DLNA transport state until stopped."""
+    try:
+        while True:
+            time.sleep(3)
+            try:
+                resp = _dlna_soap_action(device["control_url"], "GetTransportInfo")
+                root = ET.fromstring(resp)
+                # Find CurrentTransportState in response
+                state = ""
+                for el in root.iter():
+                    if el.tag.endswith("CurrentTransportState") and el.text:
+                        state = el.text.strip()
+                        break
+                if state in ("STOPPED", "NO_MEDIA_PRESENT"):
+                    print("\nPlayback finished.")
+                    break
+                print(f"  State: {state}  ", end="\r")
+            except Exception:
+                print("\nDevice disconnected.")
+                break
+    except KeyboardInterrupt:
+        print("\nStopping playback...")
+        try:
+            _dlna_soap_action(device["control_url"], "Stop")
+        except Exception:
             pass
-        print(f"Enter a number between 0 and {len(chromecasts) - 1}.")
 
 
-def cast_media(cc, url, content_type="video/mp4", live=False):
-    """Cast a media URL to the selected device."""
+# ---------------------------------------------------------------------------
+# Roku ECP control
+# ---------------------------------------------------------------------------
+
+def _extract_youtube_id(url):
+    """Extract YouTube video ID from a URL, or return None."""
+    parsed = urlparse(url)
+    if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+        qs = parse_qs(parsed.query)
+        vid = qs.get("v")
+        if vid:
+            return vid[0]
+    if parsed.hostname in ("youtu.be",):
+        path = parsed.path.lstrip("/")
+        if path:
+            return path.split("/")[0]
+    return None
+
+
+def _cast_media_roku(device, url):
+    """Launch content on a Roku device via ECP."""
+    base = f"http://{device['host']}:{device['port']}"
+    yt_id = _extract_youtube_id(url)
+    if yt_id:
+        launch_url = f"{base}/launch/837?contentId={yt_id}&MediaType=live"
+        req = urllib.request.Request(launch_url, method="POST", data=b"")
+        urllib.request.urlopen(req, timeout=10)
+        device["_roku_app_id"] = "837"
+        print(f"Now casting YouTube ({yt_id}) to {device['name']}")
+        return
+
+    # Fallback: try Roku Media Player input
+    print("  Warning: Non-YouTube URLs may not work on Roku.")
+    from urllib.parse import quote
+    launch_url = f"{base}/input/15985?t=v&u={quote(url, safe='')}&k=(null)&videoName=casturl&videoFormat=mp4"
+    req = urllib.request.Request(launch_url, method="POST", data=b"")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print(f"Now casting to {device['name']}")
+    except Exception as e:
+        print(f"  Roku launch failed: {e}")
+
+
+def _monitor_roku(device):
+    """Poll Roku state until playback ends."""
+    base = f"http://{device['host']}:{device['port']}"
+    app_id = device.get("_roku_app_id")
+    try:
+        if app_id:
+            # App launch (e.g. YouTube) — monitor via active-app
+            print("  Playing via Roku app. Press Ctrl+C to stop.")
+            while True:
+                time.sleep(5)
+                try:
+                    req = urllib.request.Request(f"{base}/query/active-app")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        root = ET.fromstring(resp.read())
+                    active = root.find("app")
+                    active_id = active.get("id", "") if active is not None else ""
+                    if active_id != app_id:
+                        print("\nApp closed.")
+                        break
+                except Exception:
+                    print("\nDevice disconnected.")
+                    break
+        else:
+            # Direct media — monitor via media-player
+            while True:
+                time.sleep(3)
+                try:
+                    req = urllib.request.Request(f"{base}/query/media-player")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        root = ET.fromstring(resp.read())
+                    state = root.get("state", "close")
+                    if state == "close":
+                        print("\nPlayback finished.")
+                        break
+                    print(f"  State: {state}  ", end="\r")
+                except Exception:
+                    print("\nDevice disconnected.")
+                    break
+    except KeyboardInterrupt:
+        print("\nStopping playback...")
+        try:
+            req = urllib.request.Request(
+                f"{base}/keypress/Stop", method="POST", data=b"",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Chromecast control (wraps pychromecast)
+# ---------------------------------------------------------------------------
+
+def _cast_media_chromecast(device, url, content_type, live):
+    """Cast via pychromecast media controller."""
+    cc = device["cast_obj"]
     mc = cc.media_controller
     stream_type = "LIVE" if live else "BUFFERED"
     mc.play_media(url, content_type, stream_type=stream_type)
     mc.block_until_active(timeout=60)
-    print(f"Now casting to {cc.cast_info.friendly_name}")
+    print(f"Now casting to {device['name']}")
 
 
-def monitor_playback(cc):
-    """Monitor playback until finished or Ctrl+C."""
+def _monitor_chromecast(device):
+    """Monitor Chromecast playback until finished or Ctrl+C."""
+    cc = device["cast_obj"]
     mc = cc.media_controller
     buffering_since = None
     BUFFERING_TIMEOUT = 60
@@ -458,6 +892,75 @@ def monitor_playback(cc):
             pass
 
 
+# ---------------------------------------------------------------------------
+# Unified dispatch
+# ---------------------------------------------------------------------------
+
+def cast_media(device, url, content_type="video/mp4", live=False):
+    """Cast a media URL to the selected device."""
+    proto = device["protocol"]
+    if proto == "dlna":
+        _cast_media_dlna(device, url, content_type)
+    elif proto == "roku":
+        _cast_media_roku(device, url)
+    elif proto == "cast":
+        _cast_media_chromecast(device, url, content_type, live)
+
+
+def monitor_playback(device):
+    """Monitor playback until finished or Ctrl+C."""
+    proto = device["protocol"]
+    if proto == "dlna":
+        _monitor_dlna(device)
+    elif proto == "roku":
+        _monitor_roku(device)
+    elif proto == "cast":
+        _monitor_chromecast(device)
+
+
+def stop_device(device):
+    """Best-effort stop for any protocol."""
+    try:
+        proto = device["protocol"]
+        if proto == "dlna":
+            _dlna_soap_action(device["control_url"], "Stop")
+        elif proto == "roku":
+            base = f"http://{device['host']}:{device['port']}"
+            req = urllib.request.Request(f"{base}/keypress/Stop", method="POST", data=b"")
+            urllib.request.urlopen(req, timeout=5)
+        elif proto == "cast" and device["cast_obj"]:
+            device["cast_obj"].media_controller.stop()
+    except Exception:
+        pass
+
+
+def select_device(devices):
+    """Display devices and let the user pick one."""
+    if not devices:
+        msg = "No devices found."
+        if not HAS_PYCHROMECAST:
+            msg += " (Chromecast discovery skipped — pychromecast not installed)"
+        print(msg)
+        sys.exit(1)
+
+    proto_tag = {"cast": "Cast", "dlna": "DLNA", "roku": "Roku"}
+    print(f"\nFound {len(devices)} device(s):\n")
+    for i, dev in enumerate(devices):
+        tag = proto_tag.get(dev["protocol"], dev["protocol"])
+        print(f"  [{i}] {dev['name']} ({dev['model']}) [{tag}]")
+
+    print()
+    while True:
+        choice = input("Select device number: ").strip()
+        try:
+            idx = int(choice)
+            if 0 <= idx < len(devices):
+                return devices[idx]
+        except ValueError:
+            pass
+        print(f"Enter a number between 0 and {len(devices) - 1}.")
+
+
 def guess_content_type(url):
     """Make a rough guess at content type from the URL."""
     lower = url.lower().split("?")[0]
@@ -479,20 +982,31 @@ def guess_content_type(url):
 
 
 def main():
-    print("Scanning for Cast devices (10s)...")
-    chromecasts, browser = pychromecast.get_chromecasts(timeout=10)
+    print("Scanning for devices (15s)...")
+    devices = discover_all(timeout=15)
     server = None
     tmp_path = None
     ffmpeg_proc = None
 
     try:
-        cc = select_device(chromecasts)
-        print(f"\nSelected: {cc.cast_info.friendly_name}\n")
+        device = select_device(devices)
+        print(f"\nSelected: {device['name']} [{device['protocol'].upper()}]\n")
 
         url = input("Paste URL to cast: ").strip()
         if not url:
             print("No URL provided.")
             sys.exit(1)
+
+        # NOTE: Roku YouTube shortcut disabled — launching the native YouTube
+        # app gives no playback-finished signal, which breaks queue support.
+        # All URLs now go through yt-dlp/ffmpeg/serve so we get uniform
+        # media-player state polling across all protocols.
+        #
+        # if device["protocol"] == "roku" and _extract_youtube_id(url):
+        #     print("Launching YouTube on Roku...")
+        #     cast_media(device, url)
+        #     monitor_playback(device)
+        #     return
 
         # Probe the URL with yt-dlp
         print("Resolving URL...")
@@ -592,10 +1106,11 @@ def main():
             if override:
                 content_type = override
 
-        print("Connecting to device...")
-        cc.wait()
-        cast_media(cc, cast_target, content_type, live=is_live)
-        monitor_playback(cc)
+        if device["protocol"] == "cast":
+            print("Connecting to device...")
+            device["cast_obj"].wait()
+        cast_media(device, cast_target, content_type, live=is_live)
+        monitor_playback(device)
     finally:
         if ffmpeg_proc:
             ffmpeg_proc.kill()
@@ -615,7 +1130,8 @@ def main():
             for f in os.listdir(tmp_dir):
                 os.unlink(os.path.join(tmp_dir, f))
             os.rmdir(tmp_dir)
-        browser.stop_discovery()
+        if _cast_browser:
+            _cast_browser.stop_discovery()
 
 
 if __name__ == "__main__":
