@@ -1,0 +1,163 @@
+"""yt-dlp URL resolution and source downloading."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+
+from ..config import YTDLP_FORMAT, YTDLP_TIMEOUT
+from ..log import get_logger
+
+log = get_logger("resolve")
+
+
+@dataclass
+class ResolvedURL:
+    title: str
+    duration: float | None          # seconds, None for live
+    is_live: bool
+    source_urls: list[str]          # 1 for muxed, 2 for DASH video+audio
+    _temp_files: list[str] = field(default_factory=list, repr=False)
+
+    def cleanup(self) -> None:
+        """Remove any temp files created by download_audio."""
+        for path in self._temp_files:
+            try:
+                os.unlink(path)
+                log.debug("Cleaned up temp file: %s", path)
+            except OSError:
+                pass
+        self._temp_files.clear()
+
+
+def resolve(url: str) -> ResolvedURL | None:
+    """Probe a URL with yt-dlp and return a ResolvedURL, or None on failure.
+
+    Consolidates probe_url, get_live_stream_url, get_vod_stream_urls from
+    the original casturl.py into one function.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "yt-dlp", "-j", "--no-playlist",
+                "-f", YTDLP_FORMAT,
+                url,
+            ],
+            capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
+        )
+    except FileNotFoundError:
+        log.error("yt-dlp not found — install with: pip install yt-dlp")
+        return None
+    except subprocess.TimeoutExpired:
+        log.warning("yt-dlp timed out after %ds", YTDLP_TIMEOUT)
+        return None
+
+    if result.returncode != 0:
+        log.warning("yt-dlp failed: %s", result.stderr.strip())
+        return None
+
+    try:
+        info = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        log.warning("yt-dlp returned invalid JSON")
+        return None
+
+    title = info.get("title", "Unknown")
+    is_live = bool(info.get("is_live"))
+    duration = info.get("duration") if not is_live else None
+
+    if is_live:
+        urls = _extract_live_urls(info)
+    else:
+        urls = _extract_vod_urls(info)
+
+    if not urls:
+        log.warning("Could not extract source URLs from yt-dlp output")
+        return None
+
+    log.info("Resolved: %s (live=%s, sources=%d)", title, is_live, len(urls))
+    return ResolvedURL(
+        title=title,
+        duration=duration,
+        is_live=is_live,
+        source_urls=urls,
+    )
+
+
+def download_audio(resolved: ResolvedURL) -> None:
+    """Download the audio stream to a temp file, leaving video as HTTP.
+
+    Works around an ffmpeg bug where multiple HTTP inputs cause audio
+    truncation. By making the audio a local file, ffmpeg only has one
+    HTTP input (video) and the bug is avoided.
+    The audio file is typically small (~1-2MB) so this is fast.
+    """
+    if resolved.is_live or len(resolved.source_urls) < 2:
+        return
+
+    audio_url = resolved.source_urls[1]
+    fd, path = tempfile.mkstemp(suffix=".m4a", prefix="casturl_")
+    os.close(fd)
+
+    log.info("Downloading audio to %s", path)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+         "-i", audio_url, "-c", "copy", path],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        log.warning("Audio download failed: %s", result.stderr[:200])
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return  # fall back to HTTP URL
+
+    resolved.source_urls[1] = path
+    resolved._temp_files = [path]
+    log.info("Audio downloaded (%d bytes)", os.path.getsize(path))
+
+
+def _extract_live_urls(info: dict) -> list[str]:
+    """Extract stream URL(s) for a live source."""
+    # Prefer manifest URL
+    manifest = info.get("manifest_url")
+    if manifest:
+        return [manifest]
+
+    # Fallback: HLS URL from formats
+    for fmt in info.get("formats", []):
+        if fmt.get("protocol") == "m3u8_native" and fmt.get("url"):
+            return [fmt["url"]]
+
+    # Last resort: direct url field
+    if info.get("url"):
+        return [info["url"]]
+
+    return []
+
+
+def _extract_vod_urls(info: dict) -> list[str]:
+    """Extract stream URL(s) for a VOD source."""
+    # Prefer separate video+audio (YouTube DASH)
+    requested = info.get("requested_formats")
+    if requested and len(requested) >= 2:
+        video_url = requested[0].get("url")
+        audio_url = requested[1].get("url")
+        if video_url and audio_url:
+            return [video_url, audio_url]
+
+    # Single muxed URL
+    if info.get("url"):
+        return [info["url"]]
+
+    # From requested_formats with only one entry
+    if requested and len(requested) == 1:
+        u = requested[0].get("url")
+        if u:
+            return [u]
+
+    return []
