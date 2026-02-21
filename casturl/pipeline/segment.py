@@ -32,11 +32,9 @@ class SegmentFFmpeg:
     def __init__(
         self,
         source_urls: list[str],
-        ts_offset: float = 0.0,
         is_live: bool = False,
     ) -> None:
         self.source_urls = source_urls
-        self.ts_offset = ts_offset
         self.is_live = is_live
         self.proc: subprocess.Popen | None = None
         self.actual_duration: float | None = None
@@ -64,9 +62,6 @@ class SegmentFFmpeg:
             "-ac", config.AUDIO_CHANNELS,
             "-b:a", config.AUDIO_BITRATE,
         ]
-
-        if self.ts_offset > 0:
-            cmd += ["-output_ts_offset", f"{self.ts_offset:.10f}"]
 
         cmd += [
             "-shortest",

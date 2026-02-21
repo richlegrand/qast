@@ -24,11 +24,9 @@ class PlaceholderSegment:
         self,
         text: str,
         duration: float = 10.0,
-        ts_offset: float = 0.0,
     ) -> None:
         self.text = text
         self.duration = duration
-        self.ts_offset = ts_offset
         self.proc: subprocess.Popen | None = None
         self._stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
@@ -77,9 +75,6 @@ class PlaceholderSegment:
             "-b:a", config.AUDIO_BITRATE,
             "-shortest",
         ]
-
-        if self.ts_offset > 0:
-            cmd += ["-output_ts_offset", str(self.ts_offset)]
 
         cmd += ["-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "pipe:1"]
         return cmd

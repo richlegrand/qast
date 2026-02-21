@@ -42,7 +42,6 @@ class Pipeline:
         self._current_segment: SegmentFFmpeg | PlaceholderSegment | None = None
         self._bridge_thread: threading.Thread | None = None
         self._monitor_thread: threading.Thread | None = None
-        self._ts_offset: float = 0.0
         self._skip_event = threading.Event()
         self._shutdown_event = threading.Event()
 
@@ -81,24 +80,20 @@ class Pipeline:
         try:
             # Show loading placeholder if we have a title
             if title:
-                actual = self._run_segment(
+                self._run_segment(
                     PlaceholderSegment(
                         text=f"Loading: {title}",
                         duration=LOADING_DURATION,
-                        ts_offset=self._ts_offset,
                     ),
                     master_stdin,
                 )
-                self._ts_offset += actual
 
             # Loop the segment until shutdown/Ctrl+C
             loop = 1
             while not self._shutdown_event.is_set():
-                log.info("Playing (loop %d, ts_offset=%.3f)", loop, self._ts_offset)
-                seg = SegmentFFmpeg(source_urls, ts_offset=self._ts_offset, is_live=is_live)
-                actual = self._run_segment(seg, master_stdin)
-                self._ts_offset += actual
-                log.info("Segment done (actual=%.3fs, new ts_offset=%.3f)", actual, self._ts_offset)
+                log.info("Playing (loop %d)", loop)
+                seg = SegmentFFmpeg(source_urls, is_live=is_live)
+                self._run_segment(seg, master_stdin)
 
                 if is_live:
                     break  # live streams don't loop
@@ -152,15 +147,13 @@ class Pipeline:
                     placeholder_text = f"Up next: {item.title}"
                     ph_duration = UP_NEXT_DURATION
 
-                actual = self._run_segment(
+                self._run_segment(
                     PlaceholderSegment(
                         text=placeholder_text,
                         duration=ph_duration,
-                        ts_offset=self._ts_offset,
                     ),
                     master_stdin,
                 )
-                self._ts_offset += actual
 
                 # Reset skip event for this item
                 self._skip_event.clear()
@@ -168,14 +161,12 @@ class Pipeline:
                 # Real segment
                 seg = SegmentFFmpeg(
                     item.source_urls,
-                    ts_offset=self._ts_offset,
                     is_live=item.is_live,
                 )
                 self._current_segment = seg
-                actual = self._run_segment(seg, master_stdin)
+                self._run_segment(seg, master_stdin)
                 self._current_segment = None
-                self._ts_offset += actual
-                log.info("Segment done (actual=%.3fs, new ts_offset=%.3f)", actual, self._ts_offset)
+                log.info("Segment done")
 
                 # Clean up temp files from this item
                 item.cleanup()
@@ -192,11 +183,8 @@ class Pipeline:
                 pass
             log.debug("Bridge queue finished")
 
-    def _run_segment(self, segment, master_stdin) -> float:
-        """Run a single segment, piping its stdout to master stdin.
-
-        Returns the actual duration of the segment (for ts_offset tracking).
-        """
+    def _run_segment(self, segment, master_stdin) -> None:
+        """Run a single segment, piping its stdout to master stdin."""
         if self._shutdown_event.is_set():
             raise _PipelineShutdown
 
@@ -209,7 +197,7 @@ class Pipeline:
                 if self._skip_event.is_set():
                     segment.kill()
                     log.info("Segment skipped")
-                    return 0.0
+                    return
 
                 chunk = segment.stdout.read(config.PIPE_CHUNK)
                 if not chunk:
@@ -217,13 +205,6 @@ class Pipeline:
                 master_stdin.write(chunk)
 
             segment.wait()
-
-            # Return actual duration for ts_offset tracking.
-            if isinstance(segment, PlaceholderSegment):
-                return segment.duration
-            if isinstance(segment, SegmentFFmpeg) and segment.actual_duration:
-                return segment.actual_duration
-            return 0.0
 
         except (BrokenPipeError, OSError):
             log.debug("Segment bridge: pipe broken")
