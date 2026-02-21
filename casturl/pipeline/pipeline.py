@@ -177,6 +177,9 @@ class Pipeline:
                 self._ts_offset += actual
                 log.info("Segment done (actual=%.3fs, new ts_offset=%.3f)", actual, self._ts_offset)
 
+                # Clean up temp files from this item
+                item.cleanup()
+
                 # Start prefetch for next item
                 queue.start_prefetch()
 

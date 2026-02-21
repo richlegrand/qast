@@ -11,17 +11,22 @@ from ..log import get_logger
 
 log = get_logger("pipeline.segment")
 
-# Regex to extract the final encoding time from ffmpeg's progress output.
-# Matches lines like: "frame= 2179 ... time=00:01:12.63 ..."
-_TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+# Regex to extract frame count from ffmpeg's progress output.
+# Matches lines like: "frame= 2179 ..."
+_FRAME_RE = re.compile(r"frame=\s*(\d+)")
+
+# Frame durations for computing segment duration from frame count.
+_VIDEO_FPS = int(config.VIDEO_FPS)
+_AAC_FRAME_SIZE = 1024
+_AUDIO_SAMPLE_RATE = int(config.AUDIO_SAMPLE_RATE)
 
 
 class SegmentFFmpeg:
     """Wraps an ffmpeg process that transcodes source URL(s) to MPEG-TS.
 
     stdout produces MPEG-TS data. stderr is drained by a background thread.
-    After wait(), `actual_duration` contains the real encoded duration parsed
-    from ffmpeg's progress output (or None if unavailable).
+    After wait(), `actual_duration` contains the encoded duration computed
+    from the frame count.
     """
 
     def __init__(
@@ -61,7 +66,7 @@ class SegmentFFmpeg:
         ]
 
         if self.ts_offset > 0:
-            cmd += ["-output_ts_offset", str(self.ts_offset)]
+            cmd += ["-output_ts_offset", f"{self.ts_offset:.10f}"]
 
         cmd += [
             "-shortest",
@@ -93,16 +98,27 @@ class SegmentFFmpeg:
             pass
 
     def _parse_duration(self) -> float | None:
-        """Parse the actual encoded duration from ffmpeg's last progress line.
+        """Compute segment duration from the video frame count.
 
-        ffmpeg -stats uses \\r to overwrite progress in-place, so all updates
-        may appear as one long "line". We find ALL time= matches and take the last.
+        Accounts for both video and audio frame boundaries — the advance
+        is the max of the two so neither stream overlaps the next segment.
+
+        ffmpeg -stats uses \\r to overwrite progress in-place, so all
+        updates may appear as one long "line".  We find ALL frame=
+        matches and take the last.
         """
         for line in reversed(self._stderr_lines):
-            matches = _TIME_RE.findall(line)
+            matches = _FRAME_RE.findall(line)
             if matches:
-                h, mins, secs = int(matches[-1][0]), int(matches[-1][1]), float(matches[-1][2])
-                return h * 3600.0 + mins * 60.0 + secs
+                video_frames = int(matches[-1])
+                video_end = video_frames / _VIDEO_FPS
+
+                # With -shortest, audio stops at video end.  Compute
+                # how many complete AAC frames fit within that time.
+                audio_frames = int(video_end * _AUDIO_SAMPLE_RATE / _AAC_FRAME_SIZE)
+                audio_end = audio_frames * _AAC_FRAME_SIZE / _AUDIO_SAMPLE_RATE
+
+                return max(video_end, audio_end)
         return None
 
     def wait(self) -> int:
@@ -113,7 +129,7 @@ class SegmentFFmpeg:
                 self._stderr_thread.join(timeout=2)
             self.actual_duration = self._parse_duration()
             if self.actual_duration:
-                log.info("Segment actual duration: %.3fs", self.actual_duration)
+                log.info("Segment duration: %.10fs", self.actual_duration)
             if rc != 0 and self._stderr_lines:
                 log.warning("Segment ffmpeg exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
             elif self._stderr_lines:

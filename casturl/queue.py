@@ -6,7 +6,7 @@ import threading
 from collections import deque
 
 from .log import get_logger
-from .resolve.ytdlp import ResolvedURL, resolve
+from .resolve.ytdlp import ResolvedURL, download_audio, resolve
 
 log = get_logger("queue")
 
@@ -54,6 +54,7 @@ class PlayQueue:
             log.info("Resolving: %s", url)
             resolved = resolve(url)
             if resolved:
+                download_audio(resolved)
                 return resolved
             # yt-dlp failed — pass raw URL directly to ffmpeg
             log.warning("Failed to resolve %s, using raw URL", url)
@@ -87,6 +88,7 @@ class PlayQueue:
         log.info("Prefetching: %s", url)
         resolved = resolve(url)
         if resolved:
+            download_audio(resolved)
             with self._item_available:
                 self._resolved.append(resolved)
                 self._item_available.notify_all()
