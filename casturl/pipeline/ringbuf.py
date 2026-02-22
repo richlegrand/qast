@@ -30,6 +30,10 @@ class RingBuffer:
         self._drained = threading.Condition(self._lock)
 
     @property
+    def min_fill(self) -> int:
+        return self._min
+
+    @property
     def size(self) -> int:
         with self._lock:
             return self._size

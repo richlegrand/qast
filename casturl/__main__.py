@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 
+from . import config
+from .capture import ScreenSegment, _select_window
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
 from .controller import Controller
@@ -52,59 +54,79 @@ def main() -> None:
         device = _select_device_auto(devices, args.device)
         print(f"\nSelected: {device.name} [{device.protocol.upper()}]\n")
 
-        # Collect URLs
-        urls = list(args.urls)
-        if not urls:
-            url = input("Paste URL to cast: ").strip()
-            if not url:
-                print("No URL provided.")
-                sys.exit(1)
-            urls = [url]
-
         raw_ts = device.protocol == "roku"
-        pipeline = Pipeline(debug=args.debug, raw_ts=raw_ts)
 
-        if len(urls) == 1:
-            # Single URL mode — resolve, show placeholder, play
-            print("Resolving URL...")
-            resolved = resolve(urls[0], cookies_from_browser=args.cookies_from_browser)
-
-            if resolved:
-                print(f"  Title: {resolved.title}")
-                if resolved.duration:
-                    mins, secs = divmod(int(resolved.duration), 60)
-                    print(f"  Duration: {mins}m{secs:02d}s")
-                if resolved.is_live:
-                    print("  Live stream detected.")
-                elif len(resolved.source_urls) > 1:
-                    download_audio(resolved)
-                resolved_obj = resolved
-                title = resolved.title
-                source_urls = resolved.source_urls
-                is_live = resolved.is_live
-
+        if args.screen or args.window:
+            # Screen/window capture mode — small buffer for low latency
+            pipeline = Pipeline(
+                debug=args.debug, raw_ts=raw_ts,
+                buffer_max=config.CAPTURE_BUFFER_MAX,
+                buffer_min=config.CAPTURE_BUFFER_MIN,
+            )
+            if args.window:
+                window_id, win_w, win_h = _select_window()
+                segment = ScreenSegment(
+                    cursor=not args.no_cursor,
+                    window_id=window_id,
+                    window_size=(win_w, win_h),
+                )
             else:
-                print("  yt-dlp failed, passing URL directly to ffmpeg.")
-                title = None
-                source_urls = [urls[0]]
-                is_live = False
-
-            print("Starting pipeline...")
-            pipeline.start_single(source_urls, is_live=is_live, title=title)
+                segment = ScreenSegment(cursor=not args.no_cursor)
+            print("Starting screen capture...")
+            pipeline.start_capture(segment)
 
         else:
-            # Queue mode — multiple URLs
-            queue = PlayQueue(loop=True, cookies_from_browser=args.cookies_from_browser)
-            for u in urls:
-                queue.add(u)
-            queue.close()
+            # URL mode
+            pipeline = Pipeline(debug=args.debug, raw_ts=raw_ts)
+            urls = list(args.urls)
+            if not urls:
+                url = input("Paste URL to cast: ").strip()
+                if not url:
+                    print("No URL provided.")
+                    sys.exit(1)
+                urls = [url]
 
-            print(f"Starting pipeline with {len(urls)} items...")
-            pipeline.start_queue(queue)
+            if len(urls) == 1:
+                # Single URL mode — resolve, show placeholder, play
+                print("Resolving URL...")
+                resolved = resolve(urls[0], cookies_from_browser=args.cookies_from_browser)
 
-            # Start interactive controller for queue management
-            controller = Controller(pipeline, queue)
-            controller.start()
+                if resolved:
+                    print(f"  Title: {resolved.title}")
+                    if resolved.duration:
+                        mins, secs = divmod(int(resolved.duration), 60)
+                        print(f"  Duration: {mins}m{secs:02d}s")
+                    if resolved.is_live:
+                        print("  Live stream detected.")
+                    elif len(resolved.source_urls) > 1:
+                        download_audio(resolved)
+                    resolved_obj = resolved
+                    title = resolved.title
+                    source_urls = resolved.source_urls
+                    is_live = resolved.is_live
+
+                else:
+                    print("  yt-dlp failed, passing URL directly to ffmpeg.")
+                    title = None
+                    source_urls = [urls[0]]
+                    is_live = False
+
+                print("Starting pipeline...")
+                pipeline.start_single(source_urls, is_live=is_live, title=title)
+
+            else:
+                # Queue mode — multiple URLs
+                queue = PlayQueue(loop=True, cookies_from_browser=args.cookies_from_browser)
+                for u in urls:
+                    queue.add(u)
+                queue.close()
+
+                print(f"Starting pipeline with {len(urls)} items...")
+                pipeline.start_queue(queue)
+
+                # Start interactive controller for queue management
+                controller = Controller(pipeline, queue)
+                controller.start()
 
         if not pipeline.wait_ready():
             print("Failed to buffer enough data. Exiting.")

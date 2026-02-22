@@ -46,9 +46,18 @@ class Pipeline:
     across segment boundaries so the master muxer sees one seamless TS input.
     """
 
-    def __init__(self, debug: bool = False, raw_ts: bool = False) -> None:
+    def __init__(
+        self,
+        debug: bool = False,
+        raw_ts: bool = False,
+        buffer_max: int | None = None,
+        buffer_min: int | None = None,
+    ) -> None:
         self._raw_ts = raw_ts
-        self.ring_buffer = RingBuffer(config.BUFFER_MAX, config.BUFFER_MIN)
+        self.ring_buffer = RingBuffer(
+            buffer_max or config.BUFFER_MAX,
+            buffer_min or config.BUFFER_MIN,
+        )
         self.master = None if raw_ts else MasterMuxer()
         content_type = "video/MP2T" if raw_ts else "video/mp4"
         self.server = StreamServer(self.ring_buffer, content_type=content_type)
@@ -233,37 +242,81 @@ class Pipeline:
             log.debug("Bridge queue finished")
             self._shutdown_event.set()
 
+    def start_capture(self, segment) -> None:
+        """Start pipeline for a live capture source (runs until killed)."""
+        if self.master:
+            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            self.master.start(debug_path=debug_path)
+            self.master.start_reader(self.ring_buffer)
+        self.server.start()
+
+        self._bridge_thread = threading.Thread(
+            target=self._bridge_capture, args=(segment,), daemon=True,
+        )
+        self._bridge_thread.start()
+        self._start_monitor()
+
+    def _bridge_capture(self, segment) -> None:
+        """Bridge for capture mode: single segment, no loop."""
+        sink = self._get_sink()
+        if sink is None:
+            log.error("Bridge capture: no write target")
+            return
+
+        self._rewriter.set_offset(0)
+        try:
+            self._run_segment(segment, sink)
+        except _PipelineShutdown:
+            log.debug("Bridge capture: shutdown requested")
+        finally:
+            self._close_sink()
+            if not self._shutdown_event.is_set():
+                if self.master:
+                    log.debug("Bridge capture: waiting for master to finish")
+                    self.master.wait()
+                log.debug("Bridge capture: waiting for buffer drain")
+                self.ring_buffer.wait_drained(timeout=10)
+            log.debug("Bridge capture finished")
+            self._shutdown_event.set()
+
     def _advance_offset(self) -> None:
         """Advance the rewriter offset based on the measured max PTS.
 
-        Aligns to the next video frame boundary (multiple of TICKS_PER_FRAME)
-        and computes a video PTS correction to match the audio master clock.
+        Aligns to the next video frame boundary (multiple of TICKS_PER_FRAME).
 
-        Audio is the master clock: the decoder plays audio at 44100 Hz
-        regardless of PTS values.  Each AAC frame = 1024 samples = 2089.8
-        ticks of real playback time (non-integer).  Over a segment, audio
-        real time drifts from video PTS.  We correct video PTS to match
-        where audio actually is.
+        For fMP4 (Chromecast): also computes a video PTS correction to match
+        the audio master clock.  Chromecast plays audio at 44100 Hz regardless
+        of PTS values, so audio real time drifts from video PTS.
+
+        For raw TS (Roku): no correction needed.  The decoder uses PTS for
+        both audio and video timing, so there's no clock drift.
         """
-        # Accumulate actual audio render time
-        self._total_audio_samples += self._rewriter.audio_frame_count * 1024
-
-        # Audio clock position in 90 kHz ticks (integer math, <=1 tick error)
-        # 90000/44100 = 100/49
-        audio_clock_ticks = self._total_audio_samples * 100 // 49
-
-        # Base offset from max video PTS (frame-aligned, as before)
+        # Base offset from max video PTS (frame-aligned)
         max_pts = self._rewriter.max_pts
         new_offset = ((max_pts // _TICKS_PER_FRAME) + 1) * _TICKS_PER_FRAME
 
-        # Video correction: shift video PTS to match where audio actually is
-        video_correction = audio_clock_ticks - new_offset
+        video_correction = 0
+        if not self._raw_ts:
+            # Accumulate actual audio render time
+            self._total_audio_samples += self._rewriter.audio_frame_count * 1024
 
-        log.info("PTS offset: %d -> %d, video_correction=%d (%.1fms), "
-                 "audio_clock=%d, audio_frames=%d",
-                 self._rewriter._offset, new_offset,
-                 video_correction, video_correction / 90,
-                 audio_clock_ticks, self._rewriter.audio_frame_count)
+            # Audio clock position in 90 kHz ticks (integer math, <=1 tick error)
+            # 90000/44100 = 100/49
+            audio_clock_ticks = self._total_audio_samples * 100 // 49
+
+            # Video correction: shift video PTS to match where audio actually is
+            video_correction = audio_clock_ticks - new_offset
+
+            log.info("PTS offset: %d -> %d, video_correction=%d (%.1fms), "
+                     "audio_clock=%d, audio_frames=%d",
+                     self._rewriter._offset, new_offset,
+                     video_correction, video_correction / 90,
+                     audio_clock_ticks, self._rewriter.audio_frame_count)
+        else:
+            log.info("PTS offset: %d -> %d (raw TS, no correction), "
+                     "audio_frames=%d",
+                     self._rewriter._offset, new_offset,
+                     self._rewriter.audio_frame_count)
 
         self._rewriter.set_offset(new_offset, video_correction=video_correction)
 
@@ -338,7 +391,7 @@ class Pipeline:
 
     def wait_ready(self, timeout: float = config.BUFFER_FILL_TIMEOUT) -> bool:
         """Block until ring buffer has enough data to start casting."""
-        log.info("Waiting for buffer to fill (%d bytes min)...", config.BUFFER_MIN)
+        log.info("Waiting for buffer to fill (%d bytes min)...", self.ring_buffer.min_fill)
         ok = self.ring_buffer.wait_min_fill(timeout)
         if ok:
             log.info("Buffer ready")
