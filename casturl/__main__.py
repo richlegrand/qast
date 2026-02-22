@@ -61,7 +61,8 @@ def main() -> None:
                 sys.exit(1)
             urls = [url]
 
-        pipeline = Pipeline(debug=args.debug)
+        raw_ts = device.protocol == "roku"
+        pipeline = Pipeline(debug=args.debug, raw_ts=raw_ts)
 
         if len(urls) == 1:
             # Single URL mode — resolve, show placeholder, play
@@ -111,7 +112,8 @@ def main() -> None:
 
         print(f"  Streaming at: {pipeline.serve_url}")
         try:
-            cast_media(device, pipeline.serve_url)
+            video_format = "ts" if raw_ts else "mp4"
+            cast_media(device, pipeline.serve_url, video_format=video_format)
         except Exception as e:
             print(f"  Cast failed: {e}")
             sys.exit(1)

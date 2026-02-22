@@ -10,12 +10,12 @@ from . import roku
 log = get_logger("cast.dispatch")
 
 
-def cast_media(device: Device, url: str) -> None:
+def cast_media(device: Device, url: str, video_format: str = "mp4") -> None:
     """Cast a media URL to the given device."""
     if device.protocol == "cast":
         chromecast.play(device, url)
     elif device.protocol == "roku":
-        roku.play(device, url)
+        roku.play(device, url, video_format=video_format)
     else:
         raise ValueError(f"Unsupported protocol: {device.protocol}")
 

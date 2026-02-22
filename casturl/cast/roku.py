@@ -22,51 +22,50 @@ from ..log import get_logger
 log = get_logger("cast.roku")
 
 
-def play(device: Device, url: str) -> None:
-    """Cast a stream URL to a Roku device.
+def play(device: Device, url: str, video_format: str = "mp4") -> None:
+    """Cast a stream URL to a Roku device via Media Assistant.
 
-    Tries, in order:
-      1. /input/15985  — Play on Roku (hidden system casting API)
-      2. /launch/782875 — Media Assistant (community replacement)
+    Media Assistant (channel 782875) is a free community app from the Roku
+    Channel Store.  Play on Roku (channel 15985) was disabled in Roku OS 11.5+.
     """
     base = f"http://{device.host}:{device.port}"
     encoded_url = quote(url, safe="")
-    params = f"?t=v&u={encoded_url}&videoName=casturl&videoFormat=mp4"
+    params = f"?t=v&u={encoded_url}&videoName=casturl&videoFormat={video_format}"
 
-    # 1) Play on Roku — must use /input, not /launch
-    if _post(f"{base}/input/15985{params}", "Play on Roku (/input/15985)"):
-        return
-
-    # 2) Media Assistant — /launch auto-plays with parameters
-    if _post(f"{base}/launch/782875{params}", "Media Assistant (/launch/782875)"):
-        # Give the channel a moment to start before it fetches the URL
+    ok, status = _post(f"{base}/launch/782875{params}", "Media Assistant")
+    if ok:
         time.sleep(2)
         return
 
-    raise RuntimeError(
-        f"Could not cast to {device.name}.\n"
-        "  Play on Roku (built-in) may be disabled on your firmware.\n"
-        "  Fix: Install the free 'Media Assistant' app from the Roku Channel Store,\n"
-        "  then try again. Also ensure Settings > System > Advanced System Settings\n"
-        "  > Control by mobile apps is set to 'Enabled'."
-    )
+    if status == 404:
+        raise RuntimeError(
+            f"Media Assistant is not installed on {device.name}.\n"
+            "  Install it free from the Roku Channel Store:\n"
+            "    Search for 'Media Assistant' on your Roku, or visit:\n"
+            "    https://channelstore.roku.com/details/782875/media-assistant\n"
+            "  Then ensure Settings > System > Advanced System Settings\n"
+            "  > Control by mobile apps is set to 'Enabled'."
+        )
+
+    raise RuntimeError(f"Could not cast to {device.name} (HTTP {status}).")
 
 
 def stop(device: Device) -> None:
     """Send Stop keypress to Roku."""
     base = f"http://{device.host}:{device.port}"
-    _post(f"{base}/keypress/Stop", "Stop keypress")
+    _post(f"{base}/keypress/Home", "Home keypress")
 
 
-def _post(url: str, label: str) -> bool:
-    """POST to a Roku ECP endpoint. Returns True on HTTP 2xx."""
+def _post(url: str, label: str) -> tuple[bool, int]:
+    """POST to a Roku ECP endpoint. Returns (success, http_status)."""
     try:
         req = urllib.request.Request(url, method="POST", data=b"")
-        urllib.request.urlopen(req, timeout=10)
+        resp = urllib.request.urlopen(req, timeout=10)
         log.info("%s: OK", label)
-        return True
+        return True, resp.status
     except urllib.error.HTTPError as e:
         log.debug("%s: HTTP %s", label, e.code)
+        return False, e.code
     except Exception as e:
         log.debug("%s: %s", label, e)
-    return False
+        return False, 0

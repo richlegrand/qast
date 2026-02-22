@@ -1,8 +1,11 @@
-"""Pipeline orchestrator: segments -> TS rewriter -> master muxer -> ring buffer -> HTTP.
+"""Pipeline orchestrator: segments -> TS rewriter -> [master muxer] -> ring buffer -> HTTP.
 
 Segments produce MPEG-TS which is piped through the TSRewriter (for PTS and
-continuity-counter continuity), then through the master muxer (TS -> fMP4),
-into an in-memory ring buffer served over HTTP.
+continuity-counter continuity), then optionally through the master muxer
+(TS -> fMP4), into an in-memory ring buffer served over HTTP.
+
+When raw_ts=True (e.g. Roku), the master muxer is skipped and rewritten
+MPEG-TS is written directly to the ring buffer (served as video/MP2T).
 
 PTS offsets use exact 90 kHz integer ticks — no float-based computation.
 """
@@ -43,10 +46,12 @@ class Pipeline:
     across segment boundaries so the master muxer sees one seamless TS input.
     """
 
-    def __init__(self, debug: bool = False) -> None:
+    def __init__(self, debug: bool = False, raw_ts: bool = False) -> None:
+        self._raw_ts = raw_ts
         self.ring_buffer = RingBuffer(config.BUFFER_MAX, config.BUFFER_MIN)
-        self.master = MasterMuxer()
-        self.server = StreamServer(self.ring_buffer)
+        self.master = None if raw_ts else MasterMuxer()
+        content_type = "video/MP2T" if raw_ts else "video/mp4"
+        self.server = StreamServer(self.ring_buffer, content_type=content_type)
         self._rewriter = TSRewriter()
         self._debug = debug
         self._current_segment: SegmentFFmpeg | PlaceholderSegment | None = None
@@ -63,9 +68,10 @@ class Pipeline:
         title: str | None = None,
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
-        debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
-        self.master.start(debug_path=debug_path)
-        self.master.start_reader(self.ring_buffer)
+        if self.master:
+            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            self.master.start(debug_path=debug_path)
+            self.master.start_reader(self.ring_buffer)
         self.server.start()
 
         self._bridge_thread = threading.Thread(
@@ -83,9 +89,9 @@ class Pipeline:
         title: str | None,
     ) -> None:
         """Bridge for single-video mode: optional placeholder then real segment."""
-        master_stdin = self.master.stdin
-        if not master_stdin:
-            log.error("Bridge: no master stdin")
+        sink = self._get_sink()
+        if sink is None:
+            log.error("Bridge: no write target")
             return
 
         self._rewriter.set_offset(0)
@@ -96,7 +102,7 @@ class Pipeline:
                     text=f"Loading: {title}",
                     duration=LOADING_DURATION,
                 )
-                self._run_segment(ph, master_stdin)
+                self._run_segment(ph, sink)
                 self._advance_offset()
 
             # Loop the segment until shutdown/Ctrl+C
@@ -105,7 +111,7 @@ class Pipeline:
             while not self._shutdown_event.is_set():
                 log.info("Playing (loop %d)", loop)
                 seg = SegmentFFmpeg(source_urls, is_live=is_live)
-                self._run_segment(seg, master_stdin)
+                self._run_segment(seg, sink)
 
                 if self._rewriter.max_pts > 0:
                     self._advance_offset()
@@ -123,13 +129,11 @@ class Pipeline:
         except _PipelineShutdown:
             log.debug("Bridge: shutdown requested")
         finally:
-            try:
-                master_stdin.close()
-            except OSError:
-                pass
+            self._close_sink()
             if not self._shutdown_event.is_set():
-                log.debug("Bridge single: waiting for master to finish")
-                self.master.wait()
+                if self.master:
+                    log.debug("Bridge single: waiting for master to finish")
+                    self.master.wait()
                 log.debug("Bridge single: waiting for buffer drain")
                 self.ring_buffer.wait_drained(timeout=300)
             log.debug("Bridge single finished")
@@ -137,9 +141,10 @@ class Pipeline:
 
     def start_queue(self, queue: PlayQueue) -> None:
         """Start pipeline consuming items from a queue."""
-        debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
-        self.master.start(debug_path=debug_path)
-        self.master.start_reader(self.ring_buffer)
+        if self.master:
+            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            self.master.start(debug_path=debug_path)
+            self.master.start_reader(self.ring_buffer)
         self.server.start()
 
         self._bridge_thread = threading.Thread(
@@ -152,9 +157,9 @@ class Pipeline:
 
     def _bridge_queue(self, queue: PlayQueue) -> None:
         """Bridge for queue mode: loop consuming items."""
-        master_stdin = self.master.stdin
-        if not master_stdin:
-            log.error("Bridge: no master stdin")
+        sink = self._get_sink()
+        if sink is None:
+            log.error("Bridge: no write target")
             return
 
         first = True
@@ -180,7 +185,7 @@ class Pipeline:
                     text=placeholder_text,
                     duration=ph_duration,
                 )
-                self._run_segment(ph, master_stdin)
+                self._run_segment(ph, sink)
                 self._advance_offset()
 
                 # Reset skip event for this item
@@ -192,7 +197,7 @@ class Pipeline:
                     is_live=item.is_live,
                 )
                 self._current_segment = seg
-                self._run_segment(seg, master_stdin)
+                self._run_segment(seg, sink)
                 self._current_segment = None
 
                 if self._rewriter.max_pts > 0:
@@ -218,13 +223,11 @@ class Pipeline:
         except _PipelineShutdown:
             log.debug("Bridge queue: shutdown requested")
         finally:
-            try:
-                master_stdin.close()
-            except OSError:
-                pass
+            self._close_sink()
             if not self._shutdown_event.is_set():
-                log.debug("Bridge queue: waiting for master to finish")
-                self.master.wait()
+                if self.master:
+                    log.debug("Bridge queue: waiting for master to finish")
+                    self.master.wait()
                 log.debug("Bridge queue: waiting for buffer drain")
                 self.ring_buffer.wait_drained(timeout=300)
             log.debug("Bridge queue finished")
@@ -264,8 +267,24 @@ class Pipeline:
 
         self._rewriter.set_offset(new_offset, video_correction=video_correction)
 
-    def _run_segment(self, segment, master_stdin) -> None:
-        """Run a single segment, piping its stdout through the TS rewriter to master stdin."""
+    def _get_sink(self):
+        """Return the write target: master stdin (fMP4 path) or ring buffer (raw TS)."""
+        if self.master:
+            return self.master.stdin
+        return self.ring_buffer
+
+    def _close_sink(self) -> None:
+        """Close the write target after all segments are done."""
+        if self.master:
+            try:
+                self.master.stdin.close()
+            except OSError:
+                pass
+        else:
+            self.ring_buffer.close()
+
+    def _run_segment(self, segment, sink) -> None:
+        """Run a single segment, piping its stdout through the TS rewriter to the sink."""
         if self._shutdown_event.is_set():
             raise _PipelineShutdown
 
@@ -285,7 +304,7 @@ class Pipeline:
                     break
                 rewritten = self._rewriter.process(chunk)
                 if rewritten:
-                    master_stdin.write(rewritten)
+                    sink.write(rewritten)
 
             # Discard any partial packet (incomplete 188-byte TS packets)
             self._rewriter.flush()
@@ -343,7 +362,8 @@ class Pipeline:
         self._skip_event.set()  # unblock any segment reads
         if self._current_segment:
             self._current_segment.kill()
-        self.master.kill()
+        if self.master:
+            self.master.kill()
         self.ring_buffer.close()
         self.server.stop()
 
