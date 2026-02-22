@@ -33,19 +33,23 @@ class ResolvedURL:
         self._temp_files.clear()
 
 
-def resolve(url: str) -> ResolvedURL | None:
+def resolve(url: str, cookies_from_browser: str | None = None) -> ResolvedURL | None:
     """Probe a URL with yt-dlp and return a ResolvedURL, or None on failure.
 
     Consolidates probe_url, get_live_stream_url, get_vod_stream_urls from
     the original casturl.py into one function.
     """
     try:
+        cmd = [
+            "yt-dlp", "-j", "--no-playlist",
+            "--remote-components", "ejs:github",
+            "-f", YTDLP_FORMAT,
+        ]
+        if cookies_from_browser:
+            cmd += ["--cookies-from-browser", cookies_from_browser]
+        cmd.append(url)
         result = subprocess.run(
-            [
-                "yt-dlp", "-j", "--no-playlist",
-                "-f", YTDLP_FORMAT,
-                url,
-            ],
+            cmd,
             capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
         )
     except FileNotFoundError:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 
@@ -9,6 +10,9 @@ from .. import config
 from ..log import get_logger
 
 log = get_logger("pipeline.placeholder")
+
+_FRAME_RE = re.compile(r"frame=\s*(\d+)")
+_VIDEO_FPS = int(config.VIDEO_FPS)
 
 
 class PlaceholderSegment:
@@ -27,6 +31,7 @@ class PlaceholderSegment:
     ) -> None:
         self.text = text
         self.duration = duration
+        self.actual_duration: float | None = None
         self.proc: subprocess.Popen | None = None
         self._stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
@@ -42,7 +47,7 @@ class PlaceholderSegment:
         )
 
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
             "-f", "lavfi", "-i", video_input,
             "-f", "lavfi", "-i", audio_input,
         ]
@@ -76,7 +81,10 @@ class PlaceholderSegment:
             "-shortest",
         ]
 
-        cmd += ["-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "pipe:1"]
+        cmd += [
+            "-muxdelay", "0", "-muxpreload", "0",
+            "-f", "mpegts", "pipe:1",
+        ]
         return cmd
 
     def _start_stderr_drain(self) -> None:
@@ -93,6 +101,22 @@ class PlaceholderSegment:
                     self._stderr_lines.append(text)
         except Exception:
             pass
+
+    def _parse_duration(self) -> float | None:
+        """Compute duration from video frame count.
+
+        Uses video_frames/fps only.  The MPEG-TS muxer shifts video PTS
+        forward by one AAC frame (~23 ms), so using video frame count keeps
+        video PTS continuous across segment boundaries.  Audio may overlap
+        by up to one AAC frame at boundaries — inaudible (placeholder audio
+        is silence) and non-accumulating.
+        """
+        for line in reversed(self._stderr_lines):
+            matches = _FRAME_RE.findall(line)
+            if matches:
+                video_frames = int(matches[-1])
+                return video_frames / _VIDEO_FPS
+        return None
 
     def start(self) -> None:
         # Try with drawtext first
@@ -137,6 +161,9 @@ class PlaceholderSegment:
             rc = self.proc.wait()
             if self._stderr_thread:
                 self._stderr_thread.join(timeout=2)
+            self.actual_duration = self._parse_duration()
+            if self.actual_duration:
+                log.info("Placeholder duration: %.10fs", self.actual_duration)
             if rc != 0 and self._stderr_lines:
                 log.warning("Placeholder exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
             return rc

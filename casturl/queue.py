@@ -18,18 +18,23 @@ class PlayQueue:
     prefetching the next item while the current one plays.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, loop: bool = False, cookies_from_browser: str | None = None) -> None:
         self._pending: deque[str] = deque()       # raw URLs not yet resolved
         self._resolved: deque[ResolvedURL] = deque()  # ready to play
+        self._all_urls: list[str] = []            # original URLs for looping
         self._lock = threading.Lock()
         self._item_available = threading.Condition(self._lock)
         self._prefetch_thread: threading.Thread | None = None
+        self._prefetching = False
         self._closed = False
+        self._loop = loop
+        self._cookies_from_browser = cookies_from_browser
 
     def add(self, url: str) -> None:
         """Add a raw URL to the queue."""
         with self._item_available:
             self._pending.append(url)
+            self._all_urls.append(url)
             log.info("Queued: %s (%d pending)", url, len(self._pending))
             self._item_available.notify_all()
 
@@ -38,7 +43,14 @@ class PlayQueue:
         url: str | None = None
         with self._item_available:
             # Wait until we have a resolved item, a pending item to resolve, or are closed
-            while not self._resolved and not self._pending and not self._closed:
+            # Stay alive while a prefetch is in-flight — it will deliver a resolved item
+            while not self._resolved and not self._pending:
+                if self._closed and not self._prefetching:
+                    if self._loop and self._all_urls:
+                        self._pending.extend(self._all_urls)
+                        log.info("Looping queue (%d items)", len(self._pending))
+                        continue
+                    break
                 self._item_available.wait()
 
             if self._resolved:
@@ -52,7 +64,7 @@ class PlayQueue:
         # Resolve outside the lock (this is slow)
         if url:
             log.info("Resolving: %s", url)
-            resolved = resolve(url)
+            resolved = resolve(url, cookies_from_browser=self._cookies_from_browser)
             if resolved:
                 download_audio(resolved)
                 return resolved
@@ -84,13 +96,15 @@ class PlayQueue:
             if not self._pending:
                 return
             url = self._pending.popleft()
+            self._prefetching = True
 
         log.info("Prefetching: %s", url)
-        resolved = resolve(url)
+        resolved = resolve(url, cookies_from_browser=self._cookies_from_browser)
         if resolved:
             download_audio(resolved)
             with self._item_available:
                 self._resolved.append(resolved)
+                self._prefetching = False
                 self._item_available.notify_all()
             log.info("Prefetched: %s", resolved.title)
         else:
@@ -102,6 +116,7 @@ class PlayQueue:
                     is_live=False,
                     source_urls=[url],
                 ))
+                self._prefetching = False
                 self._item_available.notify_all()
             log.warning("Prefetch failed for %s, using raw URL", url)
 

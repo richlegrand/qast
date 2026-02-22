@@ -15,10 +15,7 @@ log = get_logger("pipeline.segment")
 # Matches lines like: "frame= 2179 ..."
 _FRAME_RE = re.compile(r"frame=\s*(\d+)")
 
-# Frame durations for computing segment duration from frame count.
 _VIDEO_FPS = int(config.VIDEO_FPS)
-_AAC_FRAME_SIZE = 1024
-_AUDIO_SAMPLE_RATE = int(config.AUDIO_SAMPLE_RATE)
 
 
 class SegmentFFmpeg:
@@ -95,8 +92,11 @@ class SegmentFFmpeg:
     def _parse_duration(self) -> float | None:
         """Compute segment duration from the video frame count.
 
-        Accounts for both video and audio frame boundaries — the advance
-        is the max of the two so neither stream overlaps the next segment.
+        Uses video_frames/fps only.  The MPEG-TS muxer shifts video PTS
+        forward by one AAC frame (~23 ms), so using video frame count keeps
+        video PTS continuous across segment boundaries.  Audio may overlap
+        by up to one AAC frame at boundaries — non-accumulating and masked
+        by placeholder silence between segments.
 
         ffmpeg -stats uses \\r to overwrite progress in-place, so all
         updates may appear as one long "line".  We find ALL frame=
@@ -106,14 +106,7 @@ class SegmentFFmpeg:
             matches = _FRAME_RE.findall(line)
             if matches:
                 video_frames = int(matches[-1])
-                video_end = video_frames / _VIDEO_FPS
-
-                # With -shortest, audio stops at video end.  Compute
-                # how many complete AAC frames fit within that time.
-                audio_frames = int(video_end * _AUDIO_SAMPLE_RATE / _AAC_FRAME_SIZE)
-                audio_end = audio_frames * _AAC_FRAME_SIZE / _AUDIO_SAMPLE_RATE
-
-                return max(video_end, audio_end)
+                return video_frames / _VIDEO_FPS
         return None
 
     def wait(self) -> int:

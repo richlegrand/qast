@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import DISCOVERY_TIMEOUT
 from ..log import get_logger
 from .cast import discover_cast
+from .roku import discover_roku
 from .types import Device
 
 log = get_logger("discovery.scan")
@@ -22,7 +23,7 @@ def discover_all(timeout: int = DISCOVERY_TIMEOUT) -> list[Device]:
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = [
             pool.submit(discover_cast, timeout),
-            # DLNA and Roku will be added in Version 4
+            pool.submit(discover_roku, timeout),
         ]
         for fut in futures:
             try:

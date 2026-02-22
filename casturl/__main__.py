@@ -66,7 +66,7 @@ def main() -> None:
         if len(urls) == 1:
             # Single URL mode — resolve, show placeholder, play
             print("Resolving URL...")
-            resolved = resolve(urls[0])
+            resolved = resolve(urls[0], cookies_from_browser=args.cookies_from_browser)
 
             if resolved:
                 print(f"  Title: {resolved.title}")
@@ -93,7 +93,7 @@ def main() -> None:
 
         else:
             # Queue mode — multiple URLs
-            queue = PlayQueue()
+            queue = PlayQueue(loop=True, cookies_from_browser=args.cookies_from_browser)
             for u in urls:
                 queue.add(u)
             queue.close()
@@ -110,7 +110,11 @@ def main() -> None:
             sys.exit(1)
 
         print(f"  Streaming at: {pipeline.serve_url}")
-        cast_media(device, pipeline.serve_url)
+        try:
+            cast_media(device, pipeline.serve_url)
+        except Exception as e:
+            print(f"  Cast failed: {e}")
+            sys.exit(1)
 
         if controller:
             print("Playing. Commands: <URL> add | s=skip | q=quit | ?=status\n")

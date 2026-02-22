@@ -27,7 +27,6 @@ class MasterMuxer:
     def start(self, debug_path: str | None = None) -> None:
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-            "-fflags", "+genpts",
             "-f", "mpegts", "-i", "pipe:0",
             "-c", "copy",
             "-bsf:a", "aac_adtstoasc",

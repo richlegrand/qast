@@ -12,13 +12,14 @@ log = get_logger("serve.handler")
 
 
 class StreamHandler(BaseHTTPRequestHandler):
-    """Serves fMP4 data from a ring buffer as a continuous stream.
+    """Serves media data from a ring buffer as a continuous stream.
 
     No Content-Length (continuous stream). Sends DLNA headers for compatibility.
-    The ring_buffer class attribute must be set before requests arrive.
+    The ring_buffer and content_type class attributes must be set before requests arrive.
     """
 
     ring_buffer: RingBuffer | None = None
+    content_type: str = "video/mp4"
 
     def do_HEAD(self) -> None:
         log.debug("HEAD from %s", self.client_address[0])
@@ -51,7 +52,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             log.info("Stream finished, sent %d bytes", total)
 
     def _send_headers(self) -> None:
-        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Type", self.content_type)
         # No Content-Length (unknown size) and no Transfer-Encoding.
         # Connection close signals end-of-data (HTTP/1.0 style).
         self.send_header("Connection", "close")

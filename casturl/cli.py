@@ -12,6 +12,7 @@ class Args:
     device: str | None
     verbose: bool
     debug: bool
+    cookies_from_browser: str | None
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -38,6 +39,17 @@ def parse_args(argv: list[str] | None = None) -> Args:
         action="store_true",
         help="Save pipeline fMP4 output to /tmp/casturl_debug.mp4",
     )
+    parser.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        help="Browser to extract cookies from (e.g. chrome, firefox, brave)",
+    )
 
     ns = parser.parse_args(argv)
-    return Args(urls=ns.urls, device=ns.device, verbose=ns.verbose, debug=ns.debug)
+    return Args(
+        urls=ns.urls,
+        device=ns.device,
+        verbose=ns.verbose,
+        debug=ns.debug,
+        cookies_from_browser=ns.cookies_from_browser,
+    )
