@@ -59,8 +59,13 @@ class Pipeline:
             buffer_min or config.BUFFER_MIN,
         )
         self.master = None if raw_ts else MasterMuxer()
+        self._disconnect_event = threading.Event()
         content_type = "video/MP2T" if raw_ts else "video/mp4"
-        self.server = StreamServer(self.ring_buffer, content_type=content_type)
+        self.server = StreamServer(
+            self.ring_buffer,
+            content_type=content_type,
+            disconnect_event=self._disconnect_event,
+        )
         self._rewriter = TSRewriter()
         self._debug = debug
         self._current_segment: SegmentFFmpeg | PlaceholderSegment | None = None
@@ -403,10 +408,21 @@ class Pipeline:
     def serve_url(self) -> str:
         return self.server.url
 
-    def wait_done(self) -> None:
-        """Block until shutdown is requested (streams loop until stopped)."""
-        self._shutdown_event.wait()
-        log.debug("Pipeline done")
+    @property
+    def client_disconnected(self) -> bool:
+        """True if a client disconnect has been detected since last clear."""
+        return self._disconnect_event.is_set()
+
+    def clear_disconnect(self) -> None:
+        """Reset the disconnect flag after handling a reconnect."""
+        self._disconnect_event.clear()
+
+    def wait_done(self, timeout: float | None = None) -> bool:
+        """Block until shutdown is requested. Returns True if shutdown occurred."""
+        result = self._shutdown_event.wait(timeout=timeout)
+        if result:
+            log.debug("Pipeline done")
+        return result
 
     def shutdown(self) -> None:
         """Kill all subprocesses and stop the server."""

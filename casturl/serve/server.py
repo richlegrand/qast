@@ -17,9 +17,15 @@ log = get_logger("serve.server")
 class StreamServer:
     """Wraps HTTPServer in a daemon thread. Provides url property and stop()."""
 
-    def __init__(self, ring_buffer: RingBuffer, content_type: str = "video/mp4") -> None:
+    def __init__(
+        self,
+        ring_buffer: RingBuffer,
+        content_type: str = "video/mp4",
+        disconnect_event: threading.Event | None = None,
+    ) -> None:
         self._ring_buffer = ring_buffer
         self._content_type = content_type
+        self._disconnect_event = disconnect_event
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._url: str | None = None
@@ -28,6 +34,7 @@ class StreamServer:
         # Set class-level attributes on the handler
         StreamHandler.ring_buffer = self._ring_buffer
         StreamHandler.content_type = self._content_type
+        StreamHandler.disconnect_event = self._disconnect_event
 
         self._server = HTTPServer(
             (config.HTTP_BIND, config.HTTP_PORT),

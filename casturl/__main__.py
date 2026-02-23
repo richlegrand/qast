@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from . import config
 from .capture import ScreenSegment, _select_window
@@ -145,7 +146,19 @@ def main() -> None:
         else:
             print("Playing. Press Ctrl+C to stop.\n")
 
-        pipeline.wait_done()
+        while True:
+            if pipeline.wait_done(timeout=5):
+                break
+            if pipeline.client_disconnected:
+                pipeline.clear_disconnect()
+                log.info("Device disconnected, re-casting...")
+                time.sleep(3)
+                try:
+                    cast_media(device, pipeline.serve_url, video_format=video_format)
+                except Exception as e:
+                    log.error("Re-cast failed: %s", e)
+                    break
+
         print("\nPlayback finished.")
 
     except KeyboardInterrupt:

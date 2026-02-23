@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from http.server import BaseHTTPRequestHandler
 
 from .. import config
@@ -20,6 +21,7 @@ class StreamHandler(BaseHTTPRequestHandler):
 
     ring_buffer: RingBuffer | None = None
     content_type: str = "video/mp4"
+    disconnect_event: threading.Event | None = None
 
     def do_HEAD(self) -> None:
         log.debug("HEAD from %s", self.client_address[0])
@@ -48,6 +50,8 @@ class StreamHandler(BaseHTTPRequestHandler):
                 total += len(chunk)
         except (ConnectionResetError, BrokenPipeError):
             log.info("Client disconnected after %d bytes", total)
+            if self.disconnect_event is not None:
+                self.disconnect_event.set()
         else:
             log.info("Stream finished, sent %d bytes", total)
 
