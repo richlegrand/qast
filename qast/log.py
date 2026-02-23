@@ -19,4 +19,4 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(f"casturl.{name}")
+    return logging.getLogger(f"qast.{name}")

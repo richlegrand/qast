@@ -54,7 +54,7 @@ def _parse_dlna_description(location_url):
     Returns a device dict or None.
     """
     try:
-        req = urllib.request.Request(location_url, headers={"User-Agent": "casturl/1.0"})
+        req = urllib.request.Request(location_url, headers={"User-Agent": "qast/1.0"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             xml_bytes = resp.read()
     except Exception:
@@ -151,7 +151,7 @@ def _parse_roku_device(base_url):
     try:
         req = urllib.request.Request(
             f"{base_url}query/device-info",
-            headers={"User-Agent": "casturl/1.0"},
+            headers={"User-Agent": "qast/1.0"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             xml_bytes = resp.read()
@@ -345,7 +345,7 @@ def download_video(url):
     Returns (file_path,) or None.
     """
     try:
-        tmp_dir = tempfile.mkdtemp(prefix="casturl_")
+        tmp_dir = tempfile.mkdtemp(prefix="qast_")
         out_path = os.path.join(tmp_dir, "video.mp4")
 
         print("  Downloading (best quality)...")
@@ -394,7 +394,7 @@ def start_vod_stream(video_url, audio_url):
 
     Returns (server, ffmpeg_proc, local_url, tmp_path) or None.
     """
-    tmp_dir = tempfile.mkdtemp(prefix="casturl_stream_")
+    tmp_dir = tempfile.mkdtemp(prefix="qast_stream_")
     tmp_path = os.path.join(tmp_dir, "video.mp4")
 
     ffmpeg_log = os.path.join(tmp_dir, "ffmpeg.log")
@@ -578,7 +578,7 @@ def start_live_stream(manifest_url):
 
     Returns (server, ffmpeg_proc, local_url, tmp_path).
     """
-    tmp_dir = tempfile.mkdtemp(prefix="casturl_live_")
+    tmp_dir = tempfile.mkdtemp(prefix="qast_live_")
     tmp_path = os.path.join(tmp_dir, "live.mp4")
 
     # Start ffmpeg: read HLS, output fragmented mp4 (streamable from byte 0)
@@ -690,7 +690,7 @@ def _cast_media_dlna(device, url, content_type):
         ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
         ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
         '<item id="0" parentID="-1" restricted="1">'
-        '<dc:title>casturl</dc:title>'
+        '<dc:title>qast</dc:title>'
         f'<res protocolInfo="http-get:*:{content_type}:*">{escaped_url}</res>'
         '<upnp:class>object.item.videoItem</upnp:class>'
         '</item>'
@@ -778,7 +778,7 @@ def _cast_media_roku(device, url):
     # Fallback: try Roku Media Player input
     print("  Warning: Non-YouTube URLs may not work on Roku.")
     from urllib.parse import quote
-    launch_url = f"{base}/input/15985?t=v&u={quote(url, safe='')}&k=(null)&videoName=casturl&videoFormat=mp4"
+    launch_url = f"{base}/input/15985?t=v&u={quote(url, safe='')}&k=(null)&videoName=qast&videoFormat=mp4"
     req = urllib.request.Request(launch_url, method="POST", data=b"")
     try:
         urllib.request.urlopen(req, timeout=10)

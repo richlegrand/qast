@@ -30,7 +30,7 @@ def play(device: Device, url: str, video_format: str = "mp4") -> None:
     """
     base = f"http://{device.host}:{device.port}"
     encoded_url = quote(url, safe="")
-    params = f"?t=v&u={encoded_url}&videoName=casturl&videoFormat={video_format}"
+    params = f"?t=v&u={encoded_url}&videoName=qast&videoFormat={video_format}"
 
     ok, status = _post(f"{base}/launch/782875{params}", "Media Assistant")
     if ok:

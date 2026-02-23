@@ -20,7 +20,7 @@ class Args:
 
 def parse_args(argv: list[str] | None = None) -> Args:
     parser = argparse.ArgumentParser(
-        prog="casturl",
+        prog="qast",
         description="Cast URLs to Chromecast devices via an always-transcode pipeline.",
     )
     parser.add_argument(
@@ -40,7 +40,7 @@ def parse_args(argv: list[str] | None = None) -> Args:
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Save pipeline fMP4 output to /tmp/casturl_debug.mp4",
+        help="Save pipeline fMP4 output to /tmp/qast_debug.mp4",
     )
     parser.add_argument(
         "--cookies-from-browser",

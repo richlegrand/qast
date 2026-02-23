@@ -71,7 +71,7 @@ def _parse_device(base_url: str) -> Device | None:
     try:
         req = urllib.request.Request(
             f"{base_url}query/device-info",
-            headers={"User-Agent": "casturl/1.0"},
+            headers={"User-Agent": "qast/1.0"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             xml_bytes = resp.read()

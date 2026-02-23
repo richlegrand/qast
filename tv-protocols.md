@@ -32,7 +32,7 @@ Chromecast and Google TV devices use a completely different discovery mechanism 
 - **Service name**: `_googlecast._tcp.local`
 - **How it works**: Devices register a DNS-SD service record. Clients browse for the service type and get back TXT records with device metadata (friendly name, model, device ID, etc.) plus the host/port to connect to
 - **Cast protocol**: Once discovered, communication uses a protobuf-based channel over TLS — not HTTP/SOAP like DLNA or REST like Roku
-- **In casturl**: Handled entirely by `pychromecast` (which depends on the `zeroconf` Python library). We don't implement mDNS ourselves — it's complex and the library handles it well
+- **In qast**: Handled entirely by `pychromecast` (which depends on the `zeroconf` Python library). We don't implement mDNS ourselves — it's complex and the library handles it well
 - **Optional**: If pychromecast is not installed, Cast discovery is silently skipped and DLNA/Roku still work
 
 ### Summary table

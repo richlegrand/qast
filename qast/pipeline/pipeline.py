@@ -83,7 +83,7 @@ class Pipeline:
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
         if self.master:
-            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
             self.master.start(debug_path=debug_path)
             self.master.start_reader(self.ring_buffer)
         self.server.start()
@@ -156,7 +156,7 @@ class Pipeline:
     def start_queue(self, queue: PlayQueue) -> None:
         """Start pipeline consuming items from a queue."""
         if self.master:
-            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
             self.master.start(debug_path=debug_path)
             self.master.start_reader(self.ring_buffer)
         self.server.start()
@@ -250,7 +250,7 @@ class Pipeline:
     def start_capture(self, segment) -> None:
         """Start pipeline for a live capture source (runs until killed)."""
         if self.master:
-            debug_path = "/tmp/casturl_debug.mp4" if self._debug else None
+            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
             self.master.start(debug_path=debug_path)
             self.master.start_reader(self.ring_buffer)
         self.server.start()

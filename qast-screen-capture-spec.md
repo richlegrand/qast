@@ -1,8 +1,8 @@
-# casturl Screen and Window Capture Specification
+# qast Screen and Window Capture Specification
 
 ## Overview
 
-casturl can capture live screen or window content and stream it to cast devices, turning any display content into a castable source. This enables:
+qast can capture live screen or window content and stream it to cast devices, turning any display content into a castable source. This enables:
 
 - Presentations without HDMI cables
 - Dashboards on lobby TVs
@@ -15,29 +15,29 @@ casturl can capture live screen or window content and stream it to cast devices,
 
 ```bash
 # Capture entire screen (primary monitor)
-casturl --screen
+qast --screen
 
 # List monitors
-casturl --screen --list
+qast --screen --list
 
 # Capture specific monitor
-casturl --screen 2
+qast --screen 2
 
 # With audio (system audio loopback)
-casturl --screen --audio
+qast --screen --audio
 ```
 
 ### Window Capture
 
 ```bash
 # Interactive window selection
-casturl --window
+qast --window
 
 # By window title (partial match)
-casturl --window "Sales Dashboard"
+qast --window "Sales Dashboard"
 
 # By window ID (for scripting)
-casturl --window-id 0x4a00004
+qast --window-id 0x4a00004
 ```
 
 ### Options
@@ -57,7 +57,7 @@ Screen/window sources can be mixed with video sources:
 
 ```bash
 # 30 sec dashboard, then hype video, repeat
-casturl --window "Dashboard" --duration 30 hype.mp4 --repeat
+qast --window "Dashboard" --duration 30 hype.mp4 --repeat
 ```
 
 Or in a playlist file:
@@ -383,7 +383,7 @@ audio_args = [
 # Or use WASAPI loopback via ffmpeg build with --enable-libwasapi
 ```
 
-### Integration with casturl Pipeline
+### Integration with qast Pipeline
 
 Screen/window capture is just another segment source. Same named pipes, same master muxer:
 
@@ -430,14 +430,14 @@ Without a duration, screen capture runs until interrupted.
 ## Interactive Selection UI
 
 ```
-casturl --window
+qast --window
 
 Scanning for windows...
 
 Available windows:
   1. Firefox — Q4 Sales Dashboard
   2. Firefox — Gmail
-  3. Terminal — ~/projects/casturl
+  3. Terminal — ~/projects/qast
   4. Slack — Anthropic
   5. Code — architecture.md
 
@@ -486,7 +486,7 @@ screen = [
 
 ```bash
 # Open dashboard in browser, then:
-casturl --window "Dashboard" --no-cursor --fps 5 --repeat
+qast --window "Dashboard" --no-cursor --fps 5 --repeat
 ```
 
 Low framerate since dashboard is mostly static. No cursor for clean look.
@@ -494,7 +494,7 @@ Low framerate since dashboard is mostly static. No cursor for clean look.
 ### Presentation to conference room
 
 ```bash
-casturl --screen --cursor --cursor-highlight
+qast --screen --cursor --cursor-highlight
 ```
 
 Show cursor with click highlights so audience can follow along.
@@ -510,12 +510,12 @@ https://youtube.com/watch?v=another-video
 ```
 
 ```bash
-casturl playlist.txt --repeat
+qast playlist.txt --repeat
 ```
 
 ### Picture-in-picture (future enhancement)
 
 ```bash
 # Main video with dashboard overlay in corner
-casturl main-video.mp4 --pip "window://Dashboard" --pip-position=bottom-right
+qast main-video.mp4 --pip "window://Dashboard" --pip-position=bottom-right
 ```

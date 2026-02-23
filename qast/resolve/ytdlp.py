@@ -37,7 +37,7 @@ def resolve(url: str, cookies_from_browser: str | None = None) -> ResolvedURL | 
     """Probe a URL with yt-dlp and return a ResolvedURL, or None on failure.
 
     Consolidates probe_url, get_live_stream_url, get_vod_stream_urls from
-    the original casturl.py into one function.
+    the original qast.py into one function.
     """
     try:
         cmd = [
@@ -103,7 +103,7 @@ def download_audio(resolved: ResolvedURL) -> None:
         return
 
     audio_url = resolved.source_urls[1]
-    fd, path = tempfile.mkstemp(suffix=".m4a", prefix="casturl_")
+    fd, path = tempfile.mkstemp(suffix=".m4a", prefix="qast_")
     os.close(fd)
 
     log.info("Downloading audio to %s", path)

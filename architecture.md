@@ -1,6 +1,6 @@
-# casturl Architecture
+# qast Architecture
 
-casturl discovers media-capable devices on the local network and casts content to them. It supports three casting protocols (DLNA, Roku ECP, Chromecast). Every URL — whether a single video or one of many in a queue — flows through the same pipeline: yt-dlp resolves the source, ffmpeg transcodes and muxes to MPEG-TS, a master muxer remuxes to fragmented MP4, and an HTTP server streams it to the TV. Nothing touches disk.
+qast discovers media-capable devices on the local network and casts content to them. It supports three casting protocols (DLNA, Roku ECP, Chromecast). Every URL — whether a single video or one of many in a queue — flows through the same pipeline: yt-dlp resolves the source, ffmpeg transcodes and muxes to MPEG-TS, a master muxer remuxes to fragmented MP4, and an HTTP server streams it to the TV. Nothing touches disk.
 
 ---
 
@@ -41,7 +41,7 @@ The flow is the same for both:
 
 Chromecast and Google TV use mDNS/DNS-SD at `224.0.0.251:5353` — a completely separate multicast group from SSDP. Clients browse for the `_googlecast._tcp.local` service type and get back TXT records with device metadata plus a host/port for the Cast protocol (protobuf over TLS).
 
-casturl delegates this entirely to `pychromecast` (which depends on the `zeroconf` library). If pychromecast is not installed, Cast discovery is silently skipped and DLNA/Roku still work. The `cast_obj` field holds the pychromecast device object needed for later control.
+qast delegates this entirely to `pychromecast` (which depends on the `zeroconf` library). If pychromecast is not installed, Cast discovery is silently skipped and DLNA/Roku still work. The `cast_obj` field holds the pychromecast device object needed for later control.
 
 ### Reliability
 
@@ -227,7 +227,7 @@ Casting uses two SOAP actions sent to the device's `control_url`:
 1. **SetAVTransportURI** — Body includes:
    - `<CurrentURI>` — the HTTP handler URL
    - `<CurrentURIMetaData>` — HTML-escaped DIDL-Lite XML containing:
-     - `<dc:title>casturl</dc:title>`
+     - `<dc:title>qast</dc:title>`
      - `<res protocolInfo="http-get:*:video/mp4:*">URL</res>`
      - `<upnp:class>object.item.videoItem</upnp:class>`
 2. **Play** — Sent with `<Speed>1</Speed>`. Retried up to 3 times with 1-second delays because some TVs (LG webOS) return HTTP 500 if Play arrives too soon after SetAVTransportURI.
@@ -238,7 +238,7 @@ SOAP envelope format: `SOAPAction` header is `"urn:schemas-upnp-org:service:AVTr
 
 Content is sent to Roku Media Player:
 
-- `POST /input/15985?t=v&u=ENCODED_URL&videoName=casturl&videoFormat=mp4` — sends the HTTP handler URL for playback.
+- `POST /input/15985?t=v&u=ENCODED_URL&videoName=qast&videoFormat=mp4` — sends the HTTP handler URL for playback.
 
 Native app launches (e.g. YouTube channel 837) are not used. Launching a native app provides no playback state feedback — `/query/media-player` only tracks the system media player, not in-app players. Native apps also can't be pointed at our HTTP server, so they're incompatible with the pipeline regardless.
 

@@ -1,4 +1,4 @@
-"""Entry point: python -m casturl"""
+"""Entry point: python -m qast"""
 
 from __future__ import annotations
 
