@@ -8,6 +8,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from html import escape as html_escape
 
+from .. import config
 from ..discovery.types import Device
 from ..log import get_logger
 
@@ -73,14 +74,15 @@ def play(device: Device, url: str, video_format: str = "mp4") -> None:
     """Cast a URL to a DLNA renderer via AVTransport SOAP."""
     escaped_url = html_escape(url)
     mime_type = _MIME_TYPES.get(video_format, "video/mp4")
+    dlna_extras = config.DLNA_FLAGS
     didl = (
         '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"'
         ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
         ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
         '<item id="0" parentID="-1" restricted="1">'
         "<dc:title>qast</dc:title>"
-        f'<res protocolInfo="http-get:*:{mime_type}:*">{escaped_url}</res>'
-        "<upnp:class>object.item.videoItem</upnp:class>"
+        f'<res protocolInfo="http-get:*:{mime_type}:{dlna_extras}">{escaped_url}</res>'
+        "<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>"
         "</item>"
         "</DIDL-Lite>"
     )

@@ -18,6 +18,24 @@ Both DLNA and Roku use SSDP for discovery. It works over UDP multicast:
 - Namespace: `urn:schemas-upnp-org:device-1-0`
 - Only devices with an AVTransport service are useful for casting
 
+#### Querying device capabilities
+Every DLNA renderer has a **ConnectionManager** service alongside AVTransport. Its `GetProtocolInfo` SOAP action returns a comma-separated `Sink` list of every format the device accepts:
+
+```
+http-get:*:<mime>:<dlna_profile_or_wildcard>
+```
+
+Example entries from an LG TV's sink list:
+```
+http-get:*:video/mp4:DLNA.ORG_PN=AVC_MP4_BL_CIF15_AAC_520
+http-get:*:video/mpeg:DLNA.ORG_PN=AVC_TS_NA_ISO
+http-get:*:video/mp4:*          ← wildcard (accepts any video/mp4)
+http-get:*:video/mpeg:*         ← wildcard (accepts any video/mpeg)
+http-get:*:video/mp2t:*
+```
+
+This is useful for debugging format issues — if the TV rejects content, check whether its sink list includes the MIME type and profile you're sending.
+
 #### Roku Discovery
 - **Search target**: `ST: roku:ecp`
 - Response `LOCATION:` points to the Roku's base URL (e.g., `http://192.168.2.73:8060/`)
@@ -52,10 +70,21 @@ DLNA and Roku share the same SSDP multicast group but use different search targe
 ### DLNA (UPnP AVTransport SOAP)
 Control is done via SOAP XML POST requests to the AVTransport controlURL discovered above.
 
+#### Stream format: MPEG-TS
+
+DLNA devices are served raw MPEG-TS (no master muxer / fMP4 remux). This was chosen over fragmented MP4 because:
+
+- **Universal compatibility**: Every DLNA renderer tested accepts MPEG-TS. LG webOS TVs reject fragmented MP4 (Play returns UPnP error 501 "Action Failed") but handle MPEG-TS fine.
+- **Joinable at any point**: MPEG-TS packets are self-contained. If the TV probes the stream during SetAVTransportURI and consumes data from the ring buffer, subsequent connections can start from any packet boundary. fMP4 requires an init segment (ftyp+moov) at the start of every connection — if the init is consumed by a probe, reconnections fail.
+- **Simpler pipeline**: Skips the master muxer process entirely. The TS rewriter writes directly to the ring buffer.
+- **No A/V sync correction needed**: DLNA renderers use PTS for both audio and video timing, so there's no clock drift across segment boundaries (unlike Chromecast/fMP4 which needs video PTS correction).
+
+The HTTP Content-Type is `video/mpeg` and the DIDL-Lite protocolInfo matches: `http-get:*:video/mpeg:<dlna_flags>`.
+
 #### Sending media
-1. **SetAVTransportURI** — tell the TV what URL to play, with DIDL-Lite metadata (title, content type, resource URL)
-2. **Wait 1-3 seconds** — some TVs (LG webOS) return HTTP 500 if you send Play immediately
-3. **Play** — with `<Speed>1</Speed>` argument
+1. **Stop** (best-effort) — reset transport state. LG webOS returns 701 "Transition not available" on SetAVTransportURI if the renderer is still PLAYING from a previous session.
+2. **SetAVTransportURI** — tell the TV what URL to play, with DIDL-Lite metadata. The TV will immediately start probing the stream URL (sending GET requests) — this is normal.
+3. **Poll GetTransportInfo + Play** — poll the TV's transport state every 2 seconds and attempt Play. Up to 8 attempts (16 seconds total). Some TVs (LG webOS) need time to transition through TRANSITIONING state after the probe. Some TVs auto-start playback without needing an explicit Play command — detect this by checking for `PLAYING` state.
 
 #### SOAP request format
 ```
@@ -67,28 +96,52 @@ Body: XML envelope with <InstanceID>0</InstanceID> + action-specific args
 #### DIDL-Lite metadata
 Embedded in SetAVTransportURI, HTML-escaped. Contains:
 - `<dc:title>` — display name
-- `<res protocolInfo="http-get:*:video/mp4:*">URL</res>` — the media URL and content type
-- `<upnp:class>object.item.videoItem</upnp:class>`
+- `<res protocolInfo="http-get:*:video/mpeg:<dlna_flags>">URL</res>` — the media URL, MIME type, and DLNA capability flags
+- `<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>` — broadcast class (tells TV this is live/streaming content, not a seekable file)
+
+The DLNA flags in the protocolInfo fourth field should match the flags sent in the HTTP `contentFeatures.dlna.org` header.
+
+#### DLNA flags breakdown
+
+The flags string `DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0D700000000000000000000000000000` means:
+
+- **OP=00**: No seek support (neither time-based nor byte-based). Correct for a forward-only stream.
+- **CI=0**: Content is not transcoded at the DLNA level (the TV doesn't need to know we transcode internally).
+- **FLAGS=0D700000...**: Bitmask (128-bit, first 32 bits matter):
+
+| Bit | Hex | Flag | Set? |
+|-----|-----|------|------|
+| 27 | 0x08000000 | s0_increasing (start position advancing = live) | Yes |
+| 26 | 0x04000000 | sN_increasing (end position advancing = live) | Yes |
+| 24 | 0x01000000 | streaming_transfer_mode | Yes |
+| 22 | 0x00400000 | background_transfer_mode | Yes |
+| 21 | 0x00200000 | connection_stalling | Yes |
+| 20 | 0x00100000 | DLNA v1.5 | Yes |
+
+The s0/sN_increasing flags are the DLNA way of saying "this is live content" — they should suppress seek bars on compliant renderers.
+
+#### HTTP server requirements
+DLNA renderers expect specific HTTP headers on the stream response:
+- `Content-Type: video/mpeg`
+- `Accept-Ranges: none` — explicitly tells the TV not to attempt range/seek requests
+- `contentFeatures.dlna.org: <DLNA_FLAGS>` — same flags string as in the DIDL-Lite protocolInfo
+- `transferMode.dlna.org: Streaming`
+- `Connection: close` — signals end-of-data (no Content-Length for a continuous stream)
+
+#### Probe disconnect handling
+After SetAVTransportURI, TVs send one or more GET requests to probe the stream before accepting Play. These probe connections download data from the ring buffer and then disconnect. This is normal behavior — **not** a real client disconnect. The disconnect_event must be cleared after cast_media() returns, otherwise the monitoring loop will see it and trigger spurious re-cast attempts (creating an infinite re-cast loop).
 
 #### Monitoring playback
-- Poll **GetTransportInfo** every 3 seconds
-- Response contains `CurrentTransportState`: `PLAYING`, `STOPPED`, `NO_MEDIA_PRESENT`, `TRANSITIONING`, `PAUSED_PLAYBACK`
+- Poll **GetTransportInfo** — response contains `CurrentTransportState`: `PLAYING`, `STOPPED`, `NO_MEDIA_PRESENT`, `TRANSITIONING`, `PAUSED_PLAYBACK`
 - `STOPPED` or `NO_MEDIA_PRESENT` = done
 
 #### Stopping
 - Send **Stop** SOAP action
 
-#### HTTP server requirements
-DLNA renderers (especially LG, Samsung) expect specific HTTP headers:
-- `contentFeatures.dlna.org: DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000`
-- `transferMode.dlna.org: Streaming`
-- `Accept-Ranges: bytes` with proper 206 Partial Content support
-- Without these, some TVs will fetch the file but silently not display it
-
 #### Known quirks
-- **LG webOS**: Needs delay between SetAVTransportURI and Play (HTTP 500 otherwise). May not auto-switch input to show DLNA content — user may need to be on Home screen or manually open Media Player app
-- **Samsung**: Generally more reliable with auto-switching but still needs DLNA headers
-- **Sonos**: Shows up as a MediaRenderer but is audio-only
+- **LG webOS**: Slow to discover (needs 15s+ timeout with repeated M-SEARCH). Rejects fragmented MP4 over DLNA (UPnP error 501) — must use MPEG-TS. Probes the stream aggressively after SetAVTransportURI. May not auto-switch input — user may need to be on Home screen or manually open Media Player app. Always shows transport overlay (progress bar) regardless of DLNA live flags or videoBroadcast class — this is a firmware UI behavior that cannot be suppressed via standard DLNA.
+- **Samsung**: Generally more reliable. Accepts both fMP4 and MPEG-TS. May also probe the stream after SetAVTransportURI (same disconnect handling applies).
+- **Sonos**: Shows up as a MediaRenderer but is audio-only. Will reject video MIME types with UPnP error 714 on SetAVTransportURI.
 
 ### Roku ECP (External Control Protocol)
 Control is done via simple HTTP requests to the Roku's base URL (port 8060).
@@ -97,6 +150,10 @@ Control is done via simple HTTP requests to the Roku's base URL (port 8060).
 - **POST** `/launch/{channel_id}?params` — launch a channel with parameters
 - YouTube channel ID: `837`. Params: `contentId=VIDEO_ID&MediaType=live`
 - No SOAP, no XML body — just a POST with empty body
+
+#### Requirements
+- Serving custom media (our pipeline stream) requires the **Media Assistant** app (free, channel 782875) to be installed on the Roku
+- Settings > System > Advanced System Settings > Control by mobile apps must be set to **Enabled**
 
 #### Limitations
 - Launching a native app (e.g., YouTube) gives **no playback state feedback**. `/query/media-player` only tracks the Roku system media player, not in-app players
@@ -117,7 +174,18 @@ Control is done via simple HTTP requests to the Roku's base URL (port 8060).
 ---
 
 ## Devices tested
-- **LG webOS TV**: DLNA. Slow to discover, needs Play delay, may not auto-switch input
-- **Samsung Frame TV (QN55LS03)**: DLNA. Model shows as "Orbit"
-- **Roku (EE Department TV)**: Roku ECP. YouTube app launch works, media player monitoring works for served content
-- **Sonos One**: DLNA MediaRenderer but audio-only
+
+| Device | Protocol | IP | Notes |
+|--------|----------|----|-------|
+| **LG webOS TV** | DLNA | 192.168.2.47:1554 | Slow to discover. Must use MPEG-TS (rejects fMP4). Probes stream after SetAVTransportURI. Always shows transport overlay — cannot be suppressed via DLNA. May need manual input switch. |
+| **Samsung Frame TV (QN55LS03)** | DLNA | 192.168.2.31:9197 | Shows as "Orbit". Works with both fMP4 and MPEG-TS. Probes stream after SetAVTransportURI (clear disconnect_event after casting). |
+| **ONN Roku TV** | Roku ECP | 192.168.2.51:8060 | Shows as "EE Department TV". Requires Media Assistant app installed. |
+| **Sonos One** | DLNA | 192.168.2.73:1400 | Audio-only renderer. Rejects video with UPnP error 714. |
+
+### GetProtocolInfo results (video sink formats)
+
+**LG webOS TV** — Wildcards: `video/mp4:*`, `video/mpeg:*`, `video/mp2t:*`, `video/mp2ts:*`, `video/mts:*`, `video/x-matroska:*`. Specific AVC profiles: `AVC_MP4_BL_CIF15_AAC_520`, `AVC_TS_NA_T`, `AVC_TS_NA_ISO`.
+
+**Samsung Frame TV** — Wildcards: `video/mp4:*`, `video/mpeg:*`, `video/mpeg2:*`, `video/webm:*`, `video/hevc:*`, `video/x-mkv:*`. Extensive specific profiles including many AVC_MP4 (SD through HD) and AVC_TS variants.
+
+Both TVs accept `video/mpeg:*` (MPEG-TS) and `video/mp4:*` — but LG fails on fMP4 in practice despite the wildcard. The wildcard means the TV will attempt to play the format, not that it will succeed.
