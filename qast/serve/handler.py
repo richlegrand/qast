@@ -60,6 +60,7 @@ class StreamHandler(BaseHTTPRequestHandler):
         # No Content-Length (unknown size) and no Transfer-Encoding.
         # Connection close signals end-of-data (HTTP/1.0 style).
         self.send_header("Connection", "close")
+        self.send_header("Accept-Ranges", "none")
         self.send_header("contentFeatures.dlna.org", config.DLNA_FLAGS)
         self.send_header("transferMode.dlna.org", "Streaming")
 

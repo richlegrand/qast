@@ -16,7 +16,7 @@ def cast_media(device: Device, url: str, video_format: str = "mp4") -> None:
     if device.protocol == "cast":
         chromecast.play(device, url)
     elif device.protocol == "dlna":
-        dlna.play(device, url)
+        dlna.play(device, url, video_format=video_format)
     elif device.protocol == "roku":
         roku.play(device, url, video_format=video_format)
     else:

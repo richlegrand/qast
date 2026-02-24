@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import termios
 import time
 
 from . import config
@@ -47,6 +49,12 @@ def main() -> None:
     print("Scanning for devices...")
     devices = discover_all()
 
+    # Save terminal state — ffmpeg subprocesses can corrupt it on kill
+    try:
+        _saved_termios = termios.tcgetattr(sys.stdin.fileno())
+    except (termios.error, OSError):
+        _saved_termios = None
+
     pipeline: Pipeline | None = None
     device: Device | None = None
     controller: Controller | None = None
@@ -55,7 +63,7 @@ def main() -> None:
         device = _select_device_auto(devices, args.device)
         print(f"\nSelected: {device.name} [{device.protocol.upper()}]\n")
 
-        raw_ts = device.protocol == "roku"
+        raw_ts = device.protocol in ("roku", "dlna")
 
         if args.screen or args.window:
             # Screen/window capture mode — small buffer for low latency
@@ -141,6 +149,10 @@ def main() -> None:
             print(f"  Cast failed: {e}")
             sys.exit(1)
 
+        # Clear any disconnect events from the TV probing the stream
+        # during SetAVTransportURI — these are not real disconnects.
+        pipeline.clear_disconnect()
+
         if controller:
             print("Playing. Commands: <URL> add | s=skip | q=quit | ?=status\n")
         else:
@@ -155,6 +167,7 @@ def main() -> None:
                 time.sleep(3)
                 try:
                     cast_media(device, pipeline.serve_url, video_format=video_format)
+                    pipeline.clear_disconnect()
                 except Exception as e:
                     log.error("Re-cast failed: %s", e)
                     break
@@ -173,6 +186,12 @@ def main() -> None:
         if resolved_obj and hasattr(resolved_obj, 'cleanup'):
             resolved_obj.cleanup()
         stop_discovery()
+        # Restore terminal state — ffmpeg can leave echo disabled
+        if _saved_termios is not None:
+            try:
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_termios)
+            except (termios.error, OSError):
+                pass
 
 
 if __name__ == "__main__":

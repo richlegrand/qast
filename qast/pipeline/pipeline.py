@@ -60,7 +60,7 @@ class Pipeline:
         )
         self.master = None if raw_ts else MasterMuxer()
         self._disconnect_event = threading.Event()
-        content_type = "video/MP2T" if raw_ts else "video/mp4"
+        content_type = "video/mpeg" if raw_ts else "video/mp4"
         self.server = StreamServer(
             self.ring_buffer,
             content_type=content_type,
