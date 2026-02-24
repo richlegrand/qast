@@ -26,7 +26,7 @@ In other words, TVs have inconsistent streaming support — content that plays f
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream served over HTTP. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. It's like creating your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream served over HTTP. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. It's basically creating your own TV station from the command line.
 
 ## Install
 
@@ -88,7 +88,7 @@ qast "https://live-hls-web-aje.getaj.net/AJE/index.m3u8"
 qast "https://ott.grani.me/fr24/index.m3u8"
 ```
 
-Many international broadcasters stream free online but getting those streams onto your TV is painful and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams.
+Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams.
 
 ### Any file on your computer
 
@@ -394,14 +394,6 @@ Make sure your TV and computer are on the same network/VLAN. Try `qast -v` to se
 
 Yes — install the free [Media Assistant](https://channelstore.roku.com/details/782875) app from the Roku Channel Store, and enable "Control by mobile apps" in Settings > System > Advanced.
 
-## Why I built this
-
-Our office has several TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were completely undiscoverable. In the past our business has also wanted to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
-
-Why can't I just say "play this video" or "cast this window" from the command line and expect it to work?
-
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow). These solutions typically use Raspberry Pis coupled to a cloud backend. Being a nerd, this was untenable. Hopefully others find this tool useful. :)
-
 ## Upcoming features
 
 - **Multi-device casting** — cast the same stream to multiple TVs simultaneously (`qast -d "Living Room" -d "Kitchen" video.mp4`)
@@ -416,9 +408,27 @@ Looking into it more, I found that screen casting is often a paid service for bu
 
 MIT
 
+## Why I built this
+
+Our office has several TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were completely undiscoverable. In the past our business has also wanted to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
+
+Why can't I just say "play this video" or "cast this window" to a given TV from the command line and expect it to work?
+
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow). These solutions typically use Raspberry Pis coupled to a cloud backend. Being a nerd, this was untenable of course. Hopefully others find this tool useful. 
+
+qast is pronounced "cast". The q is for queue — qast can play varied content back to back as one continuous stream, and because replacing a c with q makes anything sound more techy. 
+
 ## Related projects
 
+Of course, qast leans heavily on existing projects.
+
+- [ffmpeg](https://www.ffmpeg.org/) — transcoding, muxing, screen capture, window capture, placeholder video generation
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — video extraction
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — Chromecast protocol
+
+
+## See also
+
 - [go2tv](https://github.com/alexballas/go2tv) — DLNA casting (single files)
 - [catt](https://github.com/skorokithakis/catt) — Chromecast CLI
+
