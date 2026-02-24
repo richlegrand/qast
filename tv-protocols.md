@@ -144,21 +144,39 @@ After SetAVTransportURI, TVs send one or more GET requests to probe the stream b
 - **Sonos**: Shows up as a MediaRenderer but is audio-only. Will reject video MIME types with UPnP error 714 on SetAVTransportURI.
 
 ### Roku ECP (External Control Protocol)
-Control is done via simple HTTP requests to the Roku's base URL (port 8060).
+Control is done via simple HTTP requests to the Roku's base URL (port 8060). Discovered via SSDP with `ST: roku:ecp`.
 
-#### Launching apps
-- **POST** `/launch/{channel_id}?params` — launch a channel with parameters
-- YouTube channel ID: `837`. Params: `contentId=VIDEO_ID&MediaType=live`
+#### Three relevant Roku channels
+
+**Play on Roku (channel 15985)** — A hidden built-in system channel that accepts arbitrary HTTP video URLs. This is what Home Assistant's Roku integration uses. Community reverse-engineered, no official docs. Accepts URLs via `/input/15985` (not `/launch`):
+```
+POST http://ROKU_IP:8060/input/15985?t=v&u=ENCODED_URL&videoName=qast&videoFormat=mp4
+```
+**Disabled in newer firmware** — Returns HTTP 404 via both `/input/15985` and `/launch/15985` on Roku OS 15.1.4 (ONN Roku TV). Verified 2025-02-24.
+
+**Media Assistant (channel 782875)** — A free community replacement from the Roku Channel Store. Accepts the same parameters as Play on Roku but via `/launch/782875`. This is what qast uses. Must be installed manually by the user.
+
+**Roku Media Player (channel 2213)** — A file browser that only plays from DLNA media servers or USB storage. **Cannot accept arbitrary HTTP URLs** — not useful for URL-based casting.
+
+#### Sending media
+```
+POST http://ROKU_IP:8060/launch/782875?t=v&u=ENCODED_URL&videoName=qast&videoFormat=ts
+```
+- URL must be percent-encoded
+- `t=v` = video type
+- `videoFormat` = `ts` (MPEG-TS) or `mp4`
 - No SOAP, no XML body — just a POST with empty body
+- Returns 200 on success, 404 if the channel is not installed
 
 #### Requirements
-- Serving custom media (our pipeline stream) requires the **Media Assistant** app (free, channel 782875) to be installed on the Roku
+- **Media Assistant** app (free, channel 782875) must be installed from the Roku Channel Store
 - Settings > System > Advanced System Settings > Control by mobile apps must be set to **Enabled**
 
-#### Limitations
-- Launching a native app (e.g., YouTube) gives **no playback state feedback**. `/query/media-player` only tracks the Roku system media player, not in-app players
+#### Launching native apps
+- **POST** `/launch/{channel_id}?params` — launch a channel with parameters
+- YouTube channel ID: `837`. Params: `contentId=VIDEO_ID&MediaType=live`
+- Native app launches give **no playback state feedback** — `/query/media-player` only tracks the system media player, not in-app players
 - Can only monitor via `/query/active-app` to check if the app is still in the foreground
-- For playback state tracking (needed for queues), must serve media yourself and use the Roku Media Player channel instead of native apps
 
 #### Monitoring (system media player)
 - **GET** `/query/media-player` — returns XML with `state` attribute: `play`, `pause`, `buffer`, `close`
@@ -169,7 +187,7 @@ Control is done via simple HTTP requests to the Roku's base URL (port 8060).
 - Compare against launched app ID to detect if user navigated away
 
 #### Stopping
-- **POST** `/keypress/Stop` — simulates remote Stop button
+- **POST** `/keypress/Home` — sends the user to the Home screen (stops playback)
 
 ---
 
