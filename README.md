@@ -78,17 +78,15 @@ qast "https://twitch.tv/..."
 
 YouTube, Vimeo, Twitch, TikTok, Twitter/X, Dropbox, Google Drive, PBS, BBC, and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp.
 
-### Live streams
+### Live TV streams
 
-HLS and IPTV streams work directly:
+HLS and IPTV streams work directly. Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams.
 
 ```bash
 # HLS streams (URLs are examples — check broadcaster sites for current links)
 qast "https://live-hls-web-aje.getaj.net/AJE/index.m3u8"
 qast "https://ott.grani.me/fr24/index.m3u8"
 ```
-
-Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams.
 
 ### Any file on your computer
 
@@ -106,7 +104,8 @@ qast --screen              # primary monitor
 qast --screen --no-cursor  # hide mouse cursor
 ```
 
-Works even if your TV doesn't support Miracast or AirPlay.
+Works even if your TV doesn't support Miracast or AirPlay. Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
+
 
 ### A single window
 
@@ -115,11 +114,15 @@ qast --window                        # click to select
 qast --window --window-title Grafana  # by title
 ```
 
+Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
+
 ### Your webcam
 
 ```bash
 qast --webcam              # default camera
 ```
+
+Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
 
 ### Piped data
 
@@ -230,8 +233,14 @@ qast -d "Samsung" video.mp4         # by name (substring match)
 qast -d 0 video.mp4                 # by index
 ```
 
-## How it works
+## Live streaming
 
+Roku and DLNA TVs tend to have larger starup times and large buffers, which leads to larger latencies. If you're viewing your webcam or computer desktop, you might see a 10 second lag from when you move your mouse and it showing up on the TV (for example). TVs that support Chromecast tend to have only a few seconds of latency. 
+
+For this reason Chromecast is better for live streaming if latency is important. 
+
+## How it works
+ 
 ```
 [source] → [yt-dlp resolve] → [ffmpeg transcode] → [TS rewriter] → [muxer] → [ring buffer] → [HTTP server] → [TV]
 ```
@@ -369,9 +378,10 @@ while True:
 - **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay
 - **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
 - **Office background** — queue up news, lo-fi streams, conference talks
-- **Party/gathering** - queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
-- **Curated kids content** — YouTube Kids, PBS, without the recommendations rabbit hole
-- **Digital signage** — Show "live" data, sales figures, etc.
+- **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
+- **Movie marathon** — queue up the LOTR trilogy, watch without having to lift a finger. Put it on repeat: LOTR channel
+- **Curated kids content** — queue up YouTube Kids, PBS, etc.
+- **Digital signage** — Show "live" data, sales figures, number of users, household/company news, etc.
 - **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, etc.
 
 ## FAQ
@@ -403,6 +413,7 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 - **Pause/resume** — pause and resume playback on the TV
 - **Webpage rendering** — cast any webpage to TV via headless Chromium, with auto-refresh for dashboards (`pip install qast[web]`)
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
+- **Overlay/watermark** — add a visible overlay (aka watermark) to the video stream
 - **Windows support**
 - **macOS support (screen capture to come later)**
 
@@ -416,7 +427,7 @@ Our office has TVs of various types. During the Winter Olympics I had mixed resu
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved by a paid subscription. Of course being a big ol nerd, this was untenable. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking about how easy it would be to just... (and thus qast was born.) I hope others find this tool useful. 
 
 qast is pronounced "cast". The q is for queue — qast can play a queue of varied content back to back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
