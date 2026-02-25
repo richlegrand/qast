@@ -5,7 +5,7 @@ import sys
 
 
 def setup_logging(verbose: bool = False) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
+    level = logging.DEBUG if verbose else logging.WARNING
     fmt = "%(asctime)s %(name)s %(levelname)s %(message)s"
     logging.basicConfig(
         stream=sys.stderr,

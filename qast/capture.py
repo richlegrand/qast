@@ -48,19 +48,8 @@ def _get_primary_monitor() -> tuple[int, int, int, int]:
     return 1920, 1080, 0, 0
 
 
-def _select_window() -> tuple[int, int, int]:
-    """Prompt user to click a window. Returns (window_id, width, height)."""
-    print("Click a window to capture...")
-    try:
-        wid_str = subprocess.check_output(
-            ["xdotool", "selectwindow"], timeout=30,
-        ).decode().strip()
-        window_id = int(wid_str)
-    except FileNotFoundError:
-        raise SystemExit("xdotool is required for --window (apt install xdotool)")
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError) as e:
-        raise SystemExit(f"Window selection failed: {e}")
-
+def _get_window_geometry(window_id: int) -> tuple[int, int]:
+    """Get window dimensions via xdotool. Returns (width, height)."""
     try:
         geo = subprocess.check_output(
             ["xdotool", "getwindowgeometry", "--shell", str(window_id)], timeout=5,
@@ -76,8 +65,47 @@ def _select_window() -> tuple[int, int, int]:
             height = int(line.split("=", 1)[1])
     if not width or not height:
         raise SystemExit(f"Could not parse window geometry: {geo}")
+    return width, height
 
+
+def _select_window() -> tuple[int, int, int]:
+    """Prompt user to click a window. Returns (window_id, width, height)."""
+    print("Click a window to capture...")
+    try:
+        wid_str = subprocess.check_output(
+            ["xdotool", "selectwindow"], timeout=30,
+        ).decode().strip()
+        window_id = int(wid_str)
+    except FileNotFoundError:
+        raise SystemExit("xdotool is required for --window (apt install xdotool)")
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError) as e:
+        raise SystemExit(f"Window selection failed: {e}")
+
+    width, height = _get_window_geometry(window_id)
     log.info("Selected window %d (%dx%d)", window_id, width, height)
+    return window_id, width, height
+
+
+def _find_window_by_title(title: str) -> tuple[int, int, int]:
+    """Find a window by title via xdotool search. Returns (window_id, width, height)."""
+    try:
+        out = subprocess.check_output(
+            ["xdotool", "search", "--name", title], timeout=5,
+        ).decode().strip()
+    except FileNotFoundError:
+        raise SystemExit("xdotool is required for --window-title (apt install xdotool)")
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"Window search timed out for: {title}")
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"No window found matching: {title}")
+
+    lines = out.splitlines()
+    if not lines:
+        raise SystemExit(f"No window found matching: {title}")
+
+    window_id = int(lines[0])
+    width, height = _get_window_geometry(window_id)
+    log.info("Found window %d (%dx%d) matching '%s'", window_id, width, height, title)
     return window_id, width, height
 
 
@@ -92,10 +120,12 @@ class ScreenSegment:
         cursor: bool = True,
         window_id: int | None = None,
         window_size: tuple[int, int] | None = None,
+        duration: float | None = None,
     ) -> None:
         self.cursor = cursor
         self.window_id = window_id
         self.window_size = window_size
+        self.duration = duration
         self.proc: subprocess.Popen | None = None
         self.actual_duration: float | None = None
         self._stderr_lines: list[str] = []
@@ -135,6 +165,10 @@ class ScreenSegment:
             "-f", "lavfi", "-i",
             f"anullsrc=r={config.AUDIO_SAMPLE_RATE}"
             f":cl={'stereo' if config.AUDIO_CHANNELS == '2' else 'mono'}",
+        ]
+        if self.duration is not None:
+            cmd += ["-t", str(self.duration)]
+        cmd += [
             # Video encoding (x11grab is BGR0, must convert to yuv420p for device compatibility)
             "-pix_fmt", "yuv420p",
             "-c:v", config.VIDEO_CODEC,
@@ -203,6 +237,109 @@ class ScreenSegment:
             self.proc.kill()
             self.proc.wait()
             log.debug("Screen capture killed")
+
+    @property
+    def stdout(self):
+        return self.proc.stdout if self.proc else None
+
+
+class WebcamSegment:
+    """Captures webcam via ffmpeg v4l2, outputting MPEG-TS on stdout.
+
+    Same interface as ScreenSegment: start(), wait(), kill(), stdout.
+    """
+
+    def __init__(
+        self,
+        device: str = "/dev/video0",
+        duration: float | None = None,
+    ) -> None:
+        self.device = device
+        self.duration = duration
+        self.proc: subprocess.Popen | None = None
+        self.actual_duration: float | None = None
+        self._stderr_lines: list[str] = []
+        self._stderr_thread: threading.Thread | None = None
+
+    def _build_cmd(self) -> list[str]:
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
+            "-f", "v4l2",
+            "-framerate", config.VIDEO_FPS,
+            "-i", self.device,
+            # Silent audio (pipeline expects audio+video)
+            "-f", "lavfi", "-i",
+            f"anullsrc=r={config.AUDIO_SAMPLE_RATE}"
+            f":cl={'stereo' if config.AUDIO_CHANNELS == '2' else 'mono'}",
+        ]
+        if self.duration is not None:
+            cmd += ["-t", str(self.duration)]
+        cmd += [
+            "-pix_fmt", "yuv420p",
+            "-c:v", config.VIDEO_CODEC,
+            "-preset", config.VIDEO_PRESET,
+            "-b:v", config.VIDEO_BITRATE,
+            "-s", config.VIDEO_SIZE,
+            "-r", config.VIDEO_FPS,
+            "-g", config.VIDEO_GOP,
+            "-c:a", config.AUDIO_CODEC,
+            "-ar", config.AUDIO_SAMPLE_RATE,
+            "-ac", config.AUDIO_CHANNELS,
+            "-b:a", config.AUDIO_BITRATE,
+            "-shortest",
+            "-muxdelay", "0", "-muxpreload", "0",
+            "-flush_packets", "1",
+            "-f", "mpegts", "pipe:1",
+        ]
+        return cmd
+
+    def start(self) -> None:
+        cmd = self._build_cmd()
+        log.info("Webcam capture: %s", " ".join(cmd))
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+
+    def _drain_stderr(self) -> None:
+        assert self.proc and self.proc.stderr
+        try:
+            for line in self.proc.stderr:
+                text = line.decode(errors="replace").rstrip()
+                if text:
+                    self._stderr_lines.append(text)
+        except Exception:
+            pass
+
+    def _parse_duration(self) -> float | None:
+        for line in reversed(self._stderr_lines):
+            matches = _FRAME_RE.findall(line)
+            if matches:
+                video_frames = int(matches[-1])
+                return video_frames / _VIDEO_FPS
+        return None
+
+    def wait(self) -> int:
+        if self.proc:
+            rc = self.proc.wait()
+            if self._stderr_thread:
+                self._stderr_thread.join(timeout=2)
+            self.actual_duration = self._parse_duration()
+            if self.actual_duration:
+                log.info("Webcam capture duration: %.1fs", self.actual_duration)
+            if rc != 0 and self._stderr_lines:
+                log.warning("Webcam capture exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
+            return rc
+        return -1
+
+    def kill(self) -> None:
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+            log.debug("Webcam capture killed")
 
     @property
     def stdout(self):

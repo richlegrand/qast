@@ -14,12 +14,30 @@ from ..log import get_logger
 log = get_logger("resolve")
 
 
+def probe_duration(path: str) -> float | None:
+    """Get duration via ffprobe for local files."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        pass
+    return None
+
+
 @dataclass
 class ResolvedURL:
     title: str
     duration: float | None          # seconds, None for live
     is_live: bool
     source_urls: list[str]          # 1 for muxed, 2 for DASH video+audio
+    capture: str | None = None      # "screen" | "window" | "webcam" for capture items
+    window_title: str | None = None # for capture="window"
+    show_placeholder: bool = True   # per-item placeholder toggle
     _temp_files: list[str] = field(default_factory=list, repr=False)
 
     def cleanup(self) -> None:

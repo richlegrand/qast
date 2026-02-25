@@ -13,9 +13,11 @@ PTS offsets use exact 90 kHz integer ticks — no float-based computation.
 from __future__ import annotations
 
 import threading
+import time
 from typing import TYPE_CHECKING
 
 from .. import config
+from ..capture import ScreenSegment, WebcamSegment, _find_window_by_title
 from ..log import get_logger
 from ..serve.server import StreamServer
 from .master import MasterMuxer
@@ -48,12 +50,14 @@ class Pipeline:
 
     def __init__(
         self,
-        debug: bool = False,
+        save_stream: str | None = None,
         raw_ts: bool = False,
         buffer_max: int | None = None,
         buffer_min: int | None = None,
+        verbose: bool = False,
     ) -> None:
         self._raw_ts = raw_ts
+        self._verbose = verbose
         self.ring_buffer = RingBuffer(
             buffer_max or config.BUFFER_MAX,
             buffer_min or config.BUFFER_MIN,
@@ -68,13 +72,18 @@ class Pipeline:
             fake_content_length=raw_ts,
         )
         self._rewriter = TSRewriter()
-        self._debug = debug
+        self._save_stream: str | None = save_stream
+        self._save_file = None  # IO[bytes] | None — for raw TS save
         self._current_segment: SegmentFFmpeg | PlaceholderSegment | None = None
         self._bridge_thread: threading.Thread | None = None
         self._monitor_thread: threading.Thread | None = None
         self._skip_event = threading.Event()
         self._shutdown_event = threading.Event()
         self._total_audio_samples: int = 0  # cumulative audio samples across all segments
+        # Public state for progress bar / status API
+        self.now_playing: str | None = None
+        self.segment_start_time: float | None = None
+        self.current_duration: float | None = None
 
     def start_single(
         self,
@@ -82,17 +91,21 @@ class Pipeline:
         is_live: bool = False,
         title: str | None = None,
         loading_duration: float = LOADING_DURATION,
+        show_placeholder: bool = True,
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
         if self.master:
-            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
-            self.master.start(debug_path=debug_path)
+            self.master.start(save_path=self._save_stream)
             self.master.start_reader(self.ring_buffer)
+        else:
+            if self._save_stream:
+                self._save_file = open(self._save_stream, "wb")
+                log.info("Saving TS stream to %s", self._save_stream)
         self.server.start()
 
         self._bridge_thread = threading.Thread(
             target=self._bridge_single,
-            args=(source_urls, is_live, title, loading_duration),
+            args=(source_urls, is_live, title, loading_duration, show_placeholder),
             daemon=True,
         )
         self._bridge_thread.start()
@@ -104,6 +117,7 @@ class Pipeline:
         is_live: bool,
         title: str | None,
         loading_duration: float = LOADING_DURATION,
+        show_placeholder: bool = True,
     ) -> None:
         """Bridge for single-video mode: optional placeholder then real segment."""
         sink = self._get_sink()
@@ -114,7 +128,7 @@ class Pipeline:
         self._rewriter.set_offset(0)
         try:
             # Show loading placeholder if we have a title
-            if title:
+            if show_placeholder and title:
                 ph = PlaceholderSegment(
                     text=f"Loading: {title}",
                     duration=loading_duration,
@@ -125,8 +139,11 @@ class Pipeline:
             # Loop the segment until shutdown/Ctrl+C
             loop = 1
             consecutive_failures = 0
+            self.now_playing = title
+            self.current_duration = None
             while not self._shutdown_event.is_set():
                 log.info("Playing (loop %d)", loop)
+                self.segment_start_time = time.monotonic()
                 seg = SegmentFFmpeg(source_urls, is_live=is_live)
                 self._run_segment(seg, sink)
 
@@ -142,6 +159,7 @@ class Pipeline:
                 if is_live:
                     break  # live streams don't loop
 
+                self._close_save()  # only save first pass
                 loop += 1
         except _PipelineShutdown:
             log.debug("Bridge: shutdown requested")
@@ -156,23 +174,26 @@ class Pipeline:
             log.debug("Bridge single finished")
             self._shutdown_event.set()
 
-    def start_queue(self, queue: PlayQueue) -> None:
+    def start_queue(self, queue: PlayQueue, show_placeholder: bool = True) -> None:
         """Start pipeline consuming items from a queue."""
         if self.master:
-            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
-            self.master.start(debug_path=debug_path)
+            self.master.start(save_path=self._save_stream)
             self.master.start_reader(self.ring_buffer)
+        else:
+            if self._save_stream:
+                self._save_file = open(self._save_stream, "wb")
+                log.info("Saving TS stream to %s", self._save_stream)
         self.server.start()
 
         self._bridge_thread = threading.Thread(
             target=self._bridge_queue,
-            args=(queue,),
+            args=(queue, show_placeholder),
             daemon=True,
         )
         self._bridge_thread.start()
         self._start_monitor()
 
-    def _bridge_queue(self, queue: PlayQueue) -> None:
+    def _bridge_queue(self, queue: PlayQueue, show_placeholder: bool = True) -> None:
         """Bridge for queue mode: loop consuming items."""
         sink = self._get_sink()
         if sink is None:
@@ -180,6 +201,7 @@ class Pipeline:
             return
 
         first = True
+        save_closed = False
         consecutive_failures = 0
         self._rewriter.set_offset(0)
         try:
@@ -189,30 +211,43 @@ class Pipeline:
                     log.info("Queue exhausted")
                     break
 
-                # Show placeholder
-                if first:
-                    placeholder_text = f"Loading: {item.title}"
-                    ph_duration = LOADING_DURATION
-                    first = False
-                else:
-                    placeholder_text = f"Up next: {item.title}"
-                    ph_duration = UP_NEXT_DURATION
+                # Per-item placeholder (falls back to pipeline-level default)
+                item_show_placeholder = show_placeholder and item.show_placeholder
+                if item_show_placeholder:
+                    if first:
+                        placeholder_text = f"Loading: {item.title}"
+                        ph_duration = LOADING_DURATION
+                        first = False
+                    else:
+                        placeholder_text = f"Up next: {item.title}"
+                        ph_duration = UP_NEXT_DURATION
 
-                ph = PlaceholderSegment(
-                    text=placeholder_text,
-                    duration=ph_duration,
-                )
-                self._run_segment(ph, sink)
-                self._advance_offset()
+                    ph = PlaceholderSegment(
+                        text=placeholder_text,
+                        duration=ph_duration,
+                    )
+                    self._run_segment(ph, sink)
+                    self._advance_offset()
+                else:
+                    first = False
 
                 # Reset skip event for this item
                 self._skip_event.clear()
 
-                # Real segment
-                seg = SegmentFFmpeg(
-                    item.source_urls,
-                    is_live=item.is_live,
-                )
+                # Update state for progress bar / status API
+                self.now_playing = item.title
+                self.current_duration = item.duration
+                self.segment_start_time = time.monotonic()
+
+                # Create segment based on item type
+                if item.capture:
+                    seg = self._create_capture_segment(item)
+                else:
+                    seg = SegmentFFmpeg(
+                        item.source_urls,
+                        is_live=item.is_live,
+                        duration=item.duration,
+                    )
                 self._current_segment = seg
                 self._run_segment(seg, sink)
                 self._current_segment = None
@@ -234,6 +269,11 @@ class Pipeline:
                 # Clean up temp files from this item
                 item.cleanup()
 
+                # Close save file after first pass through the queue
+                if not save_closed and queue.loop_count > 0:
+                    self._close_save()
+                    save_closed = True
+
                 # Start prefetch for next item
                 queue.start_prefetch()
 
@@ -250,26 +290,33 @@ class Pipeline:
             log.debug("Bridge queue finished")
             self._shutdown_event.set()
 
-    def start_capture(self, segment) -> None:
+    def start_capture(self, segment, title: str | None = None) -> None:
         """Start pipeline for a live capture source (runs until killed)."""
         if self.master:
-            debug_path = "/tmp/qast_debug.mp4" if self._debug else None
-            self.master.start(debug_path=debug_path)
+            self.master.start(save_path=self._save_stream)
             self.master.start_reader(self.ring_buffer)
+        else:
+            if self._save_stream:
+                self._save_file = open(self._save_stream, "wb")
+                log.info("Saving TS stream to %s", self._save_stream)
         self.server.start()
 
         self._bridge_thread = threading.Thread(
-            target=self._bridge_capture, args=(segment,), daemon=True,
+            target=self._bridge_capture, args=(segment, title), daemon=True,
         )
         self._bridge_thread.start()
         self._start_monitor()
 
-    def _bridge_capture(self, segment) -> None:
+    def _bridge_capture(self, segment, title: str | None = None) -> None:
         """Bridge for capture mode: single segment, no loop."""
         sink = self._get_sink()
         if sink is None:
             log.error("Bridge capture: no write target")
             return
+
+        self.now_playing = title or "Capture"
+        self.current_duration = getattr(segment, 'duration', None)
+        self.segment_start_time = time.monotonic()
 
         self._rewriter.set_offset(0)
         try:
@@ -286,6 +333,22 @@ class Pipeline:
                 self.ring_buffer.wait_drained(timeout=10)
             log.debug("Bridge capture finished")
             self._shutdown_event.set()
+
+    def _create_capture_segment(self, item) -> ScreenSegment | WebcamSegment:
+        """Create a capture segment from a ResolvedURL with capture config."""
+        if item.capture == "screen":
+            return ScreenSegment(duration=item.duration)
+        elif item.capture == "window":
+            wid, w, h = _find_window_by_title(item.window_title)
+            return ScreenSegment(
+                window_id=wid,
+                window_size=(w, h),
+                duration=item.duration,
+            )
+        elif item.capture == "webcam":
+            return WebcamSegment(duration=item.duration)
+        else:
+            raise ValueError(f"Unknown capture type: {item.capture}")
 
     def _advance_offset(self) -> None:
         """Advance the rewriter offset based on the measured max PTS.
@@ -366,6 +429,12 @@ class Pipeline:
                 rewritten = self._rewriter.process(chunk)
                 if rewritten:
                     sink.write(rewritten)
+                    try:
+                        sf = self._save_file
+                        if sf:
+                            sf.write(rewritten)
+                    except Exception:
+                        pass
 
             # Discard any partial packet (incomplete 188-byte TS packets)
             self._rewriter.flush()
@@ -376,7 +445,20 @@ class Pipeline:
             log.debug("Segment bridge: pipe broken")
             raise _PipelineShutdown
 
+    def _close_save(self) -> None:
+        """Close save file(s) — called after first pass or on shutdown."""
+        if self._save_file:
+            try:
+                self._save_file.close()
+            except Exception:
+                pass
+            self._save_file = None
+        if self.master:
+            self.master.close_save_file()
+
     def _start_monitor(self) -> None:
+        if not self._verbose:
+            return  # progress bar replaces monitor in non-verbose mode
         self._monitor_thread = threading.Thread(target=self._monitor, daemon=True)
         self._monitor_thread.start()
 
@@ -438,6 +520,10 @@ class Pipeline:
     def shutdown(self) -> None:
         """Kill all subprocesses and stop the server."""
         log.info("Shutting down pipeline")
+        self._close_save()
+        self.now_playing = None
+        self.segment_start_time = None
+        self.current_duration = None
         self._shutdown_event.set()
         self._skip_event.set()  # unblock any segment reads
         if self._current_segment:

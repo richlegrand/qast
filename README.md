@@ -26,7 +26,7 @@ In other words, TVs have inconsistent streaming support — content that plays f
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
 
 ## Install
 
@@ -274,9 +274,10 @@ Capture:
   --duration TIME            Stop capture after TIME (e.g., 30s, 5m, 1h)
 
 Other:
-  --cookies-from-browser B  Extract cookies from browser (chrome, firefox, brave)
+  --cookies-from-browser B  Extract cookies from browser (chrome, firefox, brave) — helps when
+                            YouTube blocks yt-dlp extraction (uses your logged-in session)
+  --save-stream FILE        Save the served stream to a file (fMP4 or TS, matching device format)
   -v, --verbose             Debug logging
-  --debug                   Save raw pipeline output to /tmp/qast_debug.mp4
   -h, --help                Show help
 ```
 
@@ -403,7 +404,7 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 - **Webpage rendering** — cast any webpage to TV via headless Chromium, with auto-refresh for dashboards (`pip install qast[web]`)
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
 - **Windows support**
-- **macOS support (first without screen capture)**
+- **macOS support (screen capture to come later)**
 
 ## License
 

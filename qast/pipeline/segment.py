@@ -30,9 +30,11 @@ class SegmentFFmpeg:
         self,
         source_urls: list[str],
         is_live: bool = False,
+        duration: float | None = None,
     ) -> None:
         self.source_urls = source_urls
         self.is_live = is_live
+        self.duration = duration
         self.proc: subprocess.Popen | None = None
         self.actual_duration: float | None = None
         self._stderr_lines: list[str] = []
@@ -46,6 +48,9 @@ class SegmentFFmpeg:
 
         for url in self.source_urls:
             cmd += ["-i", url]
+
+        if self.duration is not None:
+            cmd += ["-t", str(self.duration)]
 
         cmd += [
             "-c:v", config.VIDEO_CODEC,

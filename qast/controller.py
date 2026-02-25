@@ -53,11 +53,21 @@ class Controller:
                 self._pipeline.skip_current()
             elif line == "?":
                 print(self._queue.status)
+            elif line.startswith("r "):
+                try:
+                    idx = int(line[2:].strip())
+                    removed = self._queue.remove(idx)
+                    if removed:
+                        print(f"Removed: {removed}")
+                    else:
+                        print(f"Invalid index: {idx}")
+                except ValueError:
+                    print("Usage: r <index>")
             elif line.startswith(("http://", "https://")):
                 self._queue.add(line)
                 print(f"Added to queue: {line}")
             else:
-                print("Commands: <URL> to add | s=skip | q=quit | ?=status")
+                print("Commands: <URL> add | s=skip | r <N>=remove | q=quit | ?=status")
 
     def stop(self) -> None:
         self._stop.set()

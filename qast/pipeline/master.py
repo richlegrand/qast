@@ -23,8 +23,9 @@ class MasterMuxer:
         self._reader_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
         self._stderr_output: list[str] = []
+        self._save_file = None  # IO[bytes] | None, set by start()
 
-    def start(self, debug_path: str | None = None) -> None:
+    def start(self, save_path: str | None = None) -> None:
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
             "-f", "mpegts", "-i", "pipe:0",
@@ -41,31 +42,30 @@ class MasterMuxer:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        self._debug_path = debug_path
+        if save_path:
+            self._save_file = open(save_path, "wb")
+            log.info("Saving fMP4 stream to %s", save_path)
 
     def start_reader(self, ring_buffer: RingBuffer) -> None:
         """Start daemon threads for stdout (into ring buffer) and stderr (log capture)."""
-        debug_path = self._debug_path
 
         def _reader():
             assert self.proc and self.proc.stdout
-            debug_file = None
             try:
-                if debug_path:
-                    debug_file = open(debug_path, "wb")
-                    log.info("Debug tee: saving fMP4 to %s", debug_path)
                 while True:
                     chunk = self.proc.stdout.read(config.PIPE_CHUNK)
                     if not chunk:
                         break
                     ring_buffer.write(chunk)
-                    if debug_file:
-                        debug_file.write(chunk)
+                    try:
+                        sf = self._save_file
+                        if sf:
+                            sf.write(chunk)
+                    except Exception:
+                        pass
             except Exception:
                 log.debug("Master reader exception", exc_info=True)
             finally:
-                if debug_file:
-                    debug_file.close()
                 ring_buffer.close()
                 log.debug("Master reader finished")
 
@@ -84,6 +84,16 @@ class MasterMuxer:
         self._reader_thread.start()
         self._stderr_thread = threading.Thread(target=_stderr_reader, daemon=True)
         self._stderr_thread.start()
+
+    def close_save_file(self) -> None:
+        """Close the save file (if open). Thread-safe."""
+        f = self._save_file
+        self._save_file = None
+        if f:
+            try:
+                f.close()
+            except Exception:
+                pass
 
     @property
     def stdin(self):
