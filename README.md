@@ -7,7 +7,7 @@ qast video.mov                                # Cast local file
 qast "https://dropbox.com/abc123/video.mp4"   # Cast video located somewhere on web
 qast "https://youtube.com/watch?v=..."        # Cast YouTube video
 qast --screen                                 # Cast your computer desktop
-qast --window                                 # Cast a single window on your desktop
+qast --window                                 # Cast a window on your desktop
 qast --webcam                                 # Cast your webcam
 cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
@@ -26,7 +26,7 @@ In other words, TVs have inconsistent streaming support — content that plays f
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream served over HTTP. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. It's basically creating your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
 
 ## Install
 
@@ -76,7 +76,7 @@ qast "https://vimeo.com/..."
 qast "https://twitch.tv/..."
 ```
 
-YouTube, Vimeo, Twitch, TikTok, Twitter/X, PBS, BBC, and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp.
+YouTube, Vimeo, Twitch, TikTok, Twitter/X, Dropbox, Google Drive, PBS, BBC, and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp.
 
 ### Live streams
 
@@ -241,8 +241,8 @@ qast -d 0 video.mp4                 # by index
 3. **Rewrite** — A TS rewriter ensures PTS/DTS continuity across segment boundaries, so the TV sees one seamless stream even when sources change.
 4. **Mux** — A continuously-running muxer accepts rewritten TS segments and produces the output format. For DLNA and Roku, the rewritten MPEG-TS is used directly. For Chromecast, the master muxer remuxes to fragmented MP4.
 5. **Buffer** — An in-memory ring buffer decouples the muxer from the HTTP server, absorbing bitrate variations.
-6. **Serve** — A local HTTP server streams the buffer to the TV with appropriate headers.
-7. **Cast** — Protocol-specific signaling (DLNA SOAP, Roku ECP, or Chromecast protobuf) tells the TV to play the HTTP URL.
+6. **Cast** — Protocol-specific signaling (DLNA SOAP, Roku ECP, or Chromecast protobuf) tells the TV to stream from a local URL which points to qast's HTTP server.
+7. **Serve** — The TV connects and qast streams the buffer contents over HTTP.
 
 See [architecture.md](architecture.md) for details.
 
@@ -368,9 +368,10 @@ while True:
 - **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay
 - **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
 - **Office background** — queue up news, lo-fi streams, conference talks
+- **Party/gathering** - queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
 - **Curated kids content** — YouTube Kids, PBS, without the recommendations rabbit hole
 - **Digital signage** — Show "live" data, sales figures, etc.
-- **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, slideshow, etc.
+- **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, etc.
 
 ## FAQ
 
@@ -410,22 +411,21 @@ MIT
 
 ## Why I built this
 
-Our office has several TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were completely undiscoverable. In the past our business has also wanted to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
+Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were completely undiscoverable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
 
-Why can't I just say "play this video" or "cast this window" to a given TV from the command line and expect it to work?
+Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow). These solutions typically use Raspberry Pis coupled to a cloud backend. Being a nerd, this was untenable of course. Hopefully others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved by a paid subscription. Of course being a big ol nerd, this was untenable. I hope others find this tool useful. 
 
-qast is pronounced "cast". The q is for queue — qast can play varied content back to back as one continuous stream, and because replacing a c with q makes anything sound more techy. 
+qast is pronounced "cast". The q is for queue — qast can play a queue of varied content back to back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
 ## Related projects
 
-Of course, qast leans heavily on existing projects.
+qast leans heavily on existing projects.
 
 - [ffmpeg](https://www.ffmpeg.org/) — transcoding, muxing, screen capture, window capture, placeholder video generation
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — video extraction
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — Chromecast protocol
-
 
 ## See also
 
