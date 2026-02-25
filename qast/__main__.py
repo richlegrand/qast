@@ -11,12 +11,14 @@ from . import config
 from .capture import ScreenSegment, _select_window
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
+from .tty import tty_input
 from .controller import Controller
 from .discovery.cast import stop_discovery
 from .discovery.scan import discover_all, select_device
 from .discovery.types import Device
 from .log import setup_logging, get_logger
 from .pipeline.pipeline import Pipeline
+from .pipeline.segment import SegmentFFmpeg
 from .queue import PlayQueue
 from .resolve.ytdlp import download_audio, resolve
 
@@ -84,12 +86,23 @@ def main() -> None:
             print("Starting screen capture...")
             pipeline.start_capture(segment)
 
+        elif args.urls == ["-"]:
+            # Stdin pipe mode — read MPEG-TS from stdin
+            pipeline = Pipeline(
+                debug=args.debug, raw_ts=raw_ts,
+                buffer_max=config.CAPTURE_BUFFER_MAX,
+                buffer_min=config.CAPTURE_BUFFER_MIN,
+            )
+            segment = SegmentFFmpeg(["pipe:0"])
+            print("Reading from stdin...")
+            pipeline.start_capture(segment)
+
         else:
             # URL mode
             pipeline = Pipeline(debug=args.debug, raw_ts=raw_ts)
             urls = list(args.urls)
             if not urls:
-                url = input("Paste URL to cast: ").strip()
+                url = tty_input("Paste URL to cast: ").strip()
                 if not url:
                     print("No URL provided.")
                     sys.exit(1)
@@ -158,19 +171,25 @@ def main() -> None:
         else:
             print("Playing. Press Ctrl+C to stop.\n")
 
-        while True:
-            if pipeline.wait_done(timeout=5):
-                break
-            if pipeline.client_disconnected:
-                pipeline.clear_disconnect()
-                log.info("Device disconnected, re-casting...")
-                time.sleep(3)
-                try:
-                    cast_media(device, pipeline.serve_url, video_format=video_format)
-                    pipeline.clear_disconnect()
-                except Exception as e:
-                    log.error("Re-cast failed: %s", e)
+        if device.protocol == "dlna":
+            # DLNA renderers manage their own playback state — re-casting
+            # is harmful because normal DLNA probe connections trigger
+            # false disconnect events, creating a Stop/Play loop.
+            pipeline.wait_done()
+        else:
+            while True:
+                if pipeline.wait_done(timeout=5):
                     break
+                if pipeline.client_disconnected:
+                    pipeline.clear_disconnect()
+                    log.info("Device disconnected, re-casting...")
+                    time.sleep(3)
+                    try:
+                        cast_media(device, pipeline.serve_url, video_format=video_format)
+                        pipeline.clear_disconnect()
+                    except Exception as e:
+                        log.error("Re-cast failed: %s", e)
+                        break
 
         print("\nPlayback finished.")
 

@@ -50,6 +50,9 @@ HTTP_PORT = 0  # auto-assign
 
 # ── DLNA headers ──
 DLNA_FLAGS = (
-    "DLNA.ORG_OP=00;DLNA.ORG_CI=0;"
-    "DLNA.ORG_FLAGS=0D700000000000000000000000000000"
+    "DLNA.ORG_OP=00;DLNA.ORG_CI=1;"
+    "DLNA.ORG_FLAGS=01700000000000000000000000000000"
 )
+# Fake Content-Length for DLNA renderers that refuse streams without one.
+# Standard trick from pulseaudio-dlna / Serviio.
+DLNA_FAKE_CONTENT_LENGTH = 100 * 1024 * 1024 * 1024  # 100 GB

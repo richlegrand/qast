@@ -65,6 +65,7 @@ class Pipeline:
             self.ring_buffer,
             content_type=content_type,
             disconnect_event=self._disconnect_event,
+            fake_content_length=raw_ts,
         )
         self._rewriter = TSRewriter()
         self._debug = debug
@@ -80,6 +81,7 @@ class Pipeline:
         source_urls: list[str],
         is_live: bool = False,
         title: str | None = None,
+        loading_duration: float = LOADING_DURATION,
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
         if self.master:
@@ -90,7 +92,7 @@ class Pipeline:
 
         self._bridge_thread = threading.Thread(
             target=self._bridge_single,
-            args=(source_urls, is_live, title),
+            args=(source_urls, is_live, title, loading_duration),
             daemon=True,
         )
         self._bridge_thread.start()
@@ -101,6 +103,7 @@ class Pipeline:
         source_urls: list[str],
         is_live: bool,
         title: str | None,
+        loading_duration: float = LOADING_DURATION,
     ) -> None:
         """Bridge for single-video mode: optional placeholder then real segment."""
         sink = self._get_sink()
@@ -114,7 +117,7 @@ class Pipeline:
             if title:
                 ph = PlaceholderSegment(
                     text=f"Loading: {title}",
-                    duration=LOADING_DURATION,
+                    duration=loading_duration,
                 )
                 self._run_segment(ph, sink)
                 self._advance_offset()
@@ -416,6 +419,14 @@ class Pipeline:
     def clear_disconnect(self) -> None:
         """Reset the disconnect flag after handling a reconnect."""
         self._disconnect_event.clear()
+
+    def gate_serving(self) -> None:
+        """Block HTTP handler from serving buffer data (probe-only mode)."""
+        self.server.gate()
+
+    def ungate_serving(self) -> None:
+        """Allow HTTP handler to serve buffer data."""
+        self.server.ungate()
 
     def wait_done(self, timeout: float | None = None) -> bool:
         """Block until shutdown is requested. Returns True if shutdown occurred."""

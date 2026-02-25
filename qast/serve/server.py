@@ -22,10 +22,12 @@ class StreamServer:
         ring_buffer: RingBuffer,
         content_type: str = "video/mp4",
         disconnect_event: threading.Event | None = None,
+        fake_content_length: bool = False,
     ) -> None:
         self._ring_buffer = ring_buffer
         self._content_type = content_type
         self._disconnect_event = disconnect_event
+        self._fake_content_length = fake_content_length
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._url: str | None = None
@@ -35,6 +37,7 @@ class StreamServer:
         StreamHandler.ring_buffer = self._ring_buffer
         StreamHandler.content_type = self._content_type
         StreamHandler.disconnect_event = self._disconnect_event
+        StreamHandler.fake_content_length = self._fake_content_length
 
         self._server = HTTPServer(
             (config.HTTP_BIND, config.HTTP_PORT),
@@ -57,7 +60,23 @@ class StreamServer:
             raise RuntimeError("Server not started")
         return self._url
 
+    def gate(self) -> None:
+        """Block handler from serving buffer data (headers-only probe mode)."""
+        StreamHandler.serve_gate = threading.Event()
+
+    def ungate(self) -> None:
+        """Allow handler to serve buffer data."""
+        gate = StreamHandler.serve_gate
+        if gate is not None:
+            gate.set()
+
     def stop(self) -> None:
         if self._server:
-            self._server.shutdown()
+            # Close listening socket immediately, then request shutdown in a
+            # daemon thread — the handler may be blocked writing to a slow
+            # client, and shutdown() waits for active requests to finish.
+            self._server.server_close()
+            t = threading.Thread(target=self._server.shutdown, daemon=True)
+            t.start()
+            t.join(timeout=3)
             log.debug("HTTP server stopped")

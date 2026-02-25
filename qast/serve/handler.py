@@ -15,13 +15,15 @@ log = get_logger("serve.handler")
 class StreamHandler(BaseHTTPRequestHandler):
     """Serves media data from a ring buffer as a continuous stream.
 
-    No Content-Length (continuous stream). Sends DLNA headers for compatibility.
-    The ring_buffer and content_type class attributes must be set before requests arrive.
+    Sends DLNA headers for compatibility.  For DLNA renderers a fake
+    Content-Length is included so Samsung TVs (which reject streams
+    without one) start playback.
     """
 
     ring_buffer: RingBuffer | None = None
     content_type: str = "video/mp4"
     disconnect_event: threading.Event | None = None
+    fake_content_length: bool = False
 
     def do_HEAD(self) -> None:
         log.debug("HEAD from %s", self.client_address[0])
@@ -57,8 +59,10 @@ class StreamHandler(BaseHTTPRequestHandler):
 
     def _send_headers(self) -> None:
         self.send_header("Content-Type", self.content_type)
-        # No Content-Length (unknown size) and no Transfer-Encoding.
-        # Connection close signals end-of-data (HTTP/1.0 style).
+        if self.fake_content_length:
+            # Fake large Content-Length so DLNA renderers (Samsung etc.)
+            # accept the stream.  Connection closes when real data ends.
+            self.send_header("Content-Length", str(config.DLNA_FAKE_CONTENT_LENGTH))
         self.send_header("Connection", "close")
         self.send_header("Accept-Ranges", "none")
         self.send_header("contentFeatures.dlna.org", config.DLNA_FLAGS)

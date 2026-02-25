@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..config import DISCOVERY_TIMEOUT
 from ..log import get_logger
+from ..tty import tty_input
 from .cast import discover_cast
 from .dlna import discover_dlna
 from .roku import discover_roku
@@ -33,7 +34,8 @@ def discover_all(timeout: int = DISCOVERY_TIMEOUT) -> list[Device]:
             except Exception:
                 log.debug("Discovery future failed", exc_info=True)
 
-    # Deduplicate by (host, protocol)
+    # Deduplicate by (host, protocol), then prefer higher-quality protocols
+    # when the same host appears on multiple (e.g. cast > dlna).
     seen: set[tuple[str, str]] = set()
     unique: list[Device] = []
     for dev in results:
@@ -41,6 +43,10 @@ def discover_all(timeout: int = DISCOVERY_TIMEOUT) -> list[Device]:
         if key not in seen:
             seen.add(key)
             unique.append(dev)
+
+    # If a host has both cast and dlna, drop dlna — cast is more robust.
+    cast_hosts = {dev.host for dev in unique if dev.protocol == "cast"}
+    unique = [dev for dev in unique if not (dev.protocol == "dlna" and dev.host in cast_hosts)]
 
     unique.sort(key=lambda d: d.name.lower())
     log.info("Discovered %d device(s)", len(unique))
@@ -69,7 +75,7 @@ def select_device(devices: list[Device]) -> Device:
 
     print()
     while True:
-        choice = input("Select device number: ").strip()
+        choice = tty_input("Select device number: ").strip()
         try:
             idx = int(choice)
             if 0 <= idx < len(devices):

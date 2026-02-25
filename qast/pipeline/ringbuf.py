@@ -84,6 +84,19 @@ class RingBuffer:
             self._drained.notify_all()
             return chunk
 
+    def peek(self, size: int) -> bytes:
+        """Return up to `size` bytes from the head without consuming them."""
+        with self._lock:
+            if not self._buf:
+                return b""
+            result = bytearray()
+            for chunk in self._buf:
+                remaining = size - len(result)
+                if remaining <= 0:
+                    break
+                result.extend(chunk[:remaining])
+            return bytes(result)
+
     def wait_min_fill(self, timeout: float) -> bool:
         """Block until min_bytes have been written. Returns True if threshold met."""
         with self._data_available:
