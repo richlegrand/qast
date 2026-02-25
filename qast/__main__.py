@@ -49,7 +49,7 @@ def main() -> None:
     setup_logging(verbose=args.verbose)
 
     print("Scanning for devices...")
-    devices = discover_all()
+    devices = discover_all(show_all=args.show_all)
 
     # Save terminal state — ffmpeg subprocesses can corrupt it on kill
     try:

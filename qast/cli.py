@@ -16,6 +16,7 @@ class Args:
     screen: bool
     window: bool
     no_cursor: bool
+    show_all: bool
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -68,6 +69,13 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="Hide mouse cursor in screen capture",
     )
 
+    parser.add_argument(
+        "--show-all",
+        action="store_true",
+        default=False,
+        help="Show all protocols per device (e.g. both Cast and DLNA)",
+    )
+
     ns = parser.parse_args(argv)
     return Args(
         urls=ns.urls,
@@ -78,4 +86,5 @@ def parse_args(argv: list[str] | None = None) -> Args:
         screen=ns.screen,
         window=ns.window,
         no_cursor=ns.no_cursor,
+        show_all=ns.show_all,
     )

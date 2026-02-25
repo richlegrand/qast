@@ -18,7 +18,7 @@ log = get_logger("discovery.scan")
 PROTO_TAG = {"cast": "Cast", "dlna": "DLNA", "roku": "Roku"}
 
 
-def discover_all(timeout: int = DISCOVERY_TIMEOUT) -> list[Device]:
+def discover_all(timeout: int = DISCOVERY_TIMEOUT, show_all: bool = False) -> list[Device]:
     """Run all discovery protocols in parallel, merge and deduplicate."""
     results: list[Device] = []
 
@@ -45,8 +45,9 @@ def discover_all(timeout: int = DISCOVERY_TIMEOUT) -> list[Device]:
             unique.append(dev)
 
     # If a host has both cast and dlna, drop dlna — cast is more robust.
-    cast_hosts = {dev.host for dev in unique if dev.protocol == "cast"}
-    unique = [dev for dev in unique if not (dev.protocol == "dlna" and dev.host in cast_hosts)]
+    if not show_all:
+        cast_hosts = {dev.host for dev in unique if dev.protocol == "cast"}
+        unique = [dev for dev in unique if not (dev.protocol == "dlna" and dev.host in cast_hosts)]
 
     unique.sort(key=lambda d: d.name.lower())
     log.info("Discovered %d device(s)", len(unique))
