@@ -117,9 +117,6 @@ qast "window:Grafana"          # by title
 qast "window:Grafana"@1m       # by title, 1 minute
 ```
 
-Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
-
-
 ### A webpage
 
 ```bash
@@ -135,8 +132,6 @@ Renders a URL in headless Chromium and casts the result to your TV. Great for da
 qast webcam                    # default camera
 qast webcam@2m                 # capture for 2 minutes
 ```
-
-Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
 
 ### Piped data
 
@@ -400,13 +395,12 @@ while True:
 
 - **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay
 - **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
-- **Office background** — queue up news, lo-fi streams, conference talks
 - **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
-- **Movie marathon** — queue up the LOTR trilogy, watch without having to lift a finger. Put it on repeat: LOTR channel
-- **Curated kids content** — queue up YouTube Kids, PBS, etc.
-- **Digital signage** — Show "live" data, sales figures, number of users, household/company news, etc.
-- **MagicMirror cast** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) to any screen 
-- **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, etc.
+- **Movie marathon** — queue up the LOTR trilogy
+- **Curated kids content** — queue up appropriate content -- YouTube Kids, PBS, etc.
+- **Digital signage** — Show "live" data, sales figures, number of users, company news, etc.
+- **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror), no Raspberry Pi needed
+- **Etc** — pipe frames from your custom video source -- art, AI generated content, etc.
 
 ## FAQ
 
@@ -430,9 +424,9 @@ Make sure your TV and computer are on the same network/VLAN. Try `qast -v` to se
 
 Yes — install the free [Media Assistant](https://channelstore.roku.com/details/782875) app from the Roku Channel Store, and enable "Control by mobile apps" in Settings > System > Advanced.
 
-**I'm seeing several seconds of latency, why is that?**
+**Why am I seeing several seconds of latency?**
 
-Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. If you're viewing your webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on the TV (for example).
+Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example).
 
 ## How it works
  
@@ -469,9 +463,9 @@ Our office has TVs of various types. During the Winter Olympics I had mixed resu
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking about how how to combine disparate video sources seemlessly, and thus qast was born. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- how could you combine disparate video sources seemlessly? It would be nice if it could cast to almost all TVs... And thus qast was born. I hope others find this tool useful. 
 
-qast is pronounced like "cast". The q is for queue — qast can play a queue of varied content back-to-back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
+qast is pronounced "cast". The q is for queue — qast can play a queue of varied content back-to-back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
 ## Related projects
 
