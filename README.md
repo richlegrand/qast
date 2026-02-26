@@ -6,10 +6,10 @@ qast casts anything to any TV from the command line.
 qast video.mov                                # Cast local file
 qast "https://dropbox.com/abc123/video.mp4"   # Cast video located somewhere on web
 qast "https://youtube.com/watch?v=..."        # Cast YouTube video
-qast --screen                                 # Cast your computer desktop
-qast --window                                 # Cast a window on your desktop
-qast --browser "https://grafana.example.com"  # Cast a webpage (via headless Chromium)
-qast --webcam                                 # Cast your webcam
+qast screen                                   # Cast your computer desktop
+qast window                                   # Cast a window on your desktop (select via mouseclick)
+qast "browser:https://grafana.example.com"    # Cast a webpage (via headless Chromium)
+qast webcam                                   # Cast your webcam
 cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
 ```
@@ -49,8 +49,8 @@ sudo apt install ffmpeg
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) (strongly recommended)
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — for Chromecast/Google TV support
-- [Playwright](https://playwright.dev/python/) — for `--browser` mode (`pip install playwright && playwright install chromium`)
-- xdotool — for `--window` mode on Linux (`apt install xdotool`)
+- [Playwright](https://playwright.dev/python/) — for `browser:` source (`pip install playwright && playwright install chromium`)
+- xdotool — for `window` source on Linux (`apt install xdotool`)
 
 ## Quick start
 
@@ -62,7 +62,7 @@ qast "https://youtube.com/watch?v=dQw4w9WgXcQ"
 qast video.mov
 
 # Cast your screen
-qast --screen
+qast screen
 
 # Pick a device by name
 qast -d "Samsung" video.mp4
@@ -102,18 +102,19 @@ MP4, MKV, AVI, WebM, FLV, OGG, WMV — anything ffmpeg can read.
 ### Your entire screen
 
 ```bash
-qast --screen              # primary monitor
-qast --screen --no-cursor  # hide mouse cursor
+qast screen                    # primary monitor
+qast screen --no-cursor        # hide mouse cursor
+qast screen@5m                 # capture for 5 minutes
 ```
 
-Works even if your TV doesn't support Miracast or AirPlay. Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
-
+Works even if your TV doesn't support Miracast or AirPlay.
 
 ### A single window
 
 ```bash
-qast --window                        # click to select
-qast --window --window-title Grafana  # by title
+qast window                    # click to select
+qast "window:Grafana"          # by title
+qast "window:Grafana"@1m       # by title, 1 minute
 ```
 
 Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
@@ -122,8 +123,8 @@ Note, Chromecast works best for live streaming. See [FAQ](#faq) about live strea
 ### A webpage
 
 ```bash
-qast --browser "https://grafana.example.com/dashboard"   # render any URL
-qast --browser "https://example.com" --duration 5m       # stop after 5 minutes
+qast "browser:https://grafana.example.com/dashboard"       # render any URL
+qast "browser:https://example.com"@5m                      # stop after 5 minutes
 ```
 
 Renders a URL in headless Chromium and casts the result to your TV. Great for dashboards, status pages, or any content that's best viewed as a live webpage rather than a video. Requires [Playwright](https://playwright.dev/python/) (`pip install playwright && playwright install chromium`).
@@ -131,7 +132,8 @@ Renders a URL in headless Chromium and casts the result to your TV. Great for da
 ### Your webcam
 
 ```bash
-qast --webcam              # default camera
+qast webcam                    # default camera
+qast webcam@2m                 # capture for 2 minutes
 ```
 
 Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
