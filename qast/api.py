@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass
 
 from . import config
@@ -38,7 +37,6 @@ class Status:
     state: str  # "playing" | "stopped" | "idle"
     now_playing: str | None
     duration: float | None
-    position: float | None
     queue: list[str]
 
 
@@ -86,12 +84,15 @@ def cast(
                     resolved.source_urls,
                     is_live=resolved.is_live,
                     title=resolved.title,
+                    duration=resolved.duration,
                     show_placeholder=show_placeholder,
+                    loop=repeat,
                 )
             else:
                 pipeline.start_single(
                     [urls[0]],
                     show_placeholder=show_placeholder,
+                    loop=repeat,
                 )
         else:
             queue = PlayQueue(loop=repeat, cookies_from_browser=cookies_from_browser)
@@ -199,13 +200,11 @@ class Qast:
             raise RuntimeError("Nothing to play — call add() or add_screen() first")
 
         if repeat:
-            self._queue._loop = repeat
+            self._queue.set_loop(repeat)
         self._queue.close()
 
         # Use larger buffer for capture-only queues
-        has_capture = any(
-            qi.capture for qi in self._queue._all_items
-        )
+        has_capture = self._queue.has_capture_items
         buffer_max = config.CAPTURE_BUFFER_MAX if has_capture else None
         buffer_min = config.CAPTURE_BUFFER_MIN if has_capture else None
 
@@ -247,32 +246,20 @@ class Qast:
         """Get current playback status."""
         queue_items: list[str] = []
         if self._queue:
-            with self._queue._lock:
-                queue_items = [
-                    qi.url or qi.title or qi.capture or "item"
-                    for qi in self._queue._pending
-                ]
+            queue_items = self._queue.pending_labels()
 
         if not self._playing or not self._pipeline:
             return Status(
                 state="idle",
                 now_playing=None,
                 duration=None,
-                position=None,
                 queue=queue_items,
             )
 
-        now_playing = self._pipeline.now_playing
-        duration = self._pipeline.current_duration
-        position = None
-        if self._pipeline.segment_start_time is not None:
-            position = time.monotonic() - self._pipeline.segment_start_time
-
         return Status(
             state="playing",
-            now_playing=now_playing,
-            duration=duration,
-            position=position,
+            now_playing=self._pipeline.now_playing,
+            duration=self._pipeline.current_duration,
             queue=queue_items,
         )
 

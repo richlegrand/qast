@@ -129,6 +129,19 @@ class PlayQueue:
             show_placeholder=qi.show_placeholder,
         )
 
+    def resolve_next(self) -> None:
+        """Resolve the next pending item synchronously (for eager first-item resolution)."""
+        with self._lock:
+            if not self._pending:
+                return
+            qi = self._pending.popleft()
+
+        resolved = self._resolve_item(qi)
+        with self._item_available:
+            self._resolved.append(resolved)
+            self._item_available.notify_all()
+        log.info("Resolved: %s", resolved.title)
+
     def start_prefetch(self) -> None:
         """Start background resolution of the next pending item."""
         with self._lock:
@@ -177,6 +190,31 @@ class PlayQueue:
     def loop_count(self) -> int:
         """Number of times the queue has looped back to the beginning."""
         return self._loop_count
+
+    def set_loop(self, enabled: bool) -> None:
+        """Enable or disable queue looping."""
+        self._loop = enabled
+
+    @property
+    def has_capture_items(self) -> bool:
+        """True if any queued item is a capture source."""
+        return any(qi.capture for qi in self._all_items)
+
+    def pending_labels(self) -> list[str]:
+        """Return labels for all pending items (thread-safe)."""
+        with self._lock:
+            return [qi.url or qi.title or qi.capture or "item" for qi in self._pending]
+
+    def peek_next(self) -> tuple[int, str | None]:
+        """Return (remaining_count, next_resolved_title) under lock.
+
+        Only returns a title if the next item has been resolved (has a real
+        title from yt-dlp). Unresolved pending items are counted but not named.
+        """
+        with self._lock:
+            count = len(self._pending) + len(self._resolved)
+            title = self._resolved[0].title if self._resolved else None
+            return count, title
 
     @property
     def status(self) -> str:

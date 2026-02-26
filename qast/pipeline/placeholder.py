@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import re
 import subprocess
-import threading
+import textwrap
 
 from .. import config
 from ..log import get_logger
+from .segment import SegmentBase
 
 log = get_logger("pipeline.placeholder")
 
-_FRAME_RE = re.compile(r"frame=\s*(\d+)")
-_VIDEO_FPS = int(config.VIDEO_FPS)
 
-
-class PlaceholderSegment:
+class PlaceholderSegment(SegmentBase):
     """Generates MPEG-TS from ffmpeg lavfi virtual inputs.
 
     Produces a solid color background with centered text. No network, no disk.
@@ -24,17 +21,16 @@ class PlaceholderSegment:
     If drawtext is unavailable (no libfreetype), falls back to plain color.
     """
 
+    _log_name = "Placeholder"
+
     def __init__(
         self,
         text: str,
         duration: float = 10.0,
     ) -> None:
+        super().__init__()
         self.text = text
         self.duration = duration
-        self.actual_duration: float | None = None
-        self.proc: subprocess.Popen | None = None
-        self._stderr_lines: list[str] = []
-        self._stderr_thread: threading.Thread | None = None
 
     def _build_cmd(self, use_drawtext: bool = True) -> list[str]:
         video_input = (
@@ -57,7 +53,7 @@ class PlaceholderSegment:
             # The text is delimited by single quotes in the filter string.
             # Colons and backslashes are special in filter syntax.
             # Single quotes cannot be escaped inside the text — strip them.
-            safe_text = self.text
+            safe_text = textwrap.fill(self.text, width=50)
             safe_text = safe_text.replace("\\", "\\\\")
             safe_text = safe_text.replace(":", "\\:")
             safe_text = safe_text.replace("'", "\u2019")  # curly apostrophe
@@ -70,58 +66,16 @@ class PlaceholderSegment:
             )
             cmd += ["-vf", drawtext]
 
-        cmd += [
-            "-c:v", config.VIDEO_CODEC,
-            "-preset", "ultrafast",
-            "-tune", "stillimage",
-            "-c:a", config.AUDIO_CODEC,
-            "-ar", config.AUDIO_SAMPLE_RATE,
-            "-ac", config.AUDIO_CHANNELS,
-            "-b:a", config.AUDIO_BITRATE,
-            "-shortest",
-        ]
-
-        cmd += [
-            "-muxdelay", "0", "-muxpreload", "0",
-            "-f", "mpegts", "pipe:1",
-        ]
+        cmd += config.ffmpeg_output_args(
+            preset="ultrafast", tune="stillimage", flush_packets=False,
+            scale=False,
+        )
         return cmd
-
-    def _start_stderr_drain(self) -> None:
-        self._stderr_lines = []
-        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
-        self._stderr_thread.start()
-
-    def _drain_stderr(self) -> None:
-        assert self.proc and self.proc.stderr
-        try:
-            for line in self.proc.stderr:
-                text = line.decode(errors="replace").rstrip()
-                if text:
-                    self._stderr_lines.append(text)
-        except Exception:
-            pass
-
-    def _parse_duration(self) -> float | None:
-        """Compute duration from video frame count.
-
-        Uses video_frames/fps only.  The MPEG-TS muxer shifts video PTS
-        forward by one AAC frame (~23 ms), so using video frame count keeps
-        video PTS continuous across segment boundaries.  Audio may overlap
-        by up to one AAC frame at boundaries — inaudible (placeholder audio
-        is silence) and non-accumulating.
-        """
-        for line in reversed(self._stderr_lines):
-            matches = _FRAME_RE.findall(line)
-            if matches:
-                video_frames = int(matches[-1])
-                return video_frames / _VIDEO_FPS
-        return None
 
     def start(self) -> None:
         # Try with drawtext first
         cmd = self._build_cmd(use_drawtext=True)
-        log.info("Placeholder: %s", " ".join(cmd))
+        log.info("%s: %s", self._log_name, " ".join(cmd))
         self.proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -133,7 +87,10 @@ class PlaceholderSegment:
             self.proc.wait(timeout=0.5)
         except subprocess.TimeoutExpired:
             # Still running — good, start stderr drain
-            self._start_stderr_drain()
+            self._stderr_thread = __import__("threading").Thread(
+                target=self._drain_stderr, daemon=True,
+            )
+            self._stderr_thread.start()
             return
 
         # It exited fast — check stderr and retry without drawtext
@@ -142,8 +99,8 @@ class PlaceholderSegment:
             err = ""
             if self.proc.stderr:
                 err = self.proc.stderr.read().decode(errors="replace").strip()
-            log.warning("Placeholder with drawtext failed (rc=%d): %s", rc, err)
-            log.info("Retrying placeholder without drawtext")
+            log.warning("%s with drawtext failed (rc=%d): %s", self._log_name, rc, err)
+            log.info("Retrying %s without drawtext", self._log_name.lower())
 
             cmd = self._build_cmd(use_drawtext=False)
             self.proc = subprocess.Popen(
@@ -151,30 +108,7 @@ class PlaceholderSegment:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            self._start_stderr_drain()
-        else:
-            # Exited 0 very fast — that's fine (very short duration?)
-            pass
-
-    def wait(self) -> int:
-        if self.proc:
-            rc = self.proc.wait()
-            if self._stderr_thread:
-                self._stderr_thread.join(timeout=2)
-            self.actual_duration = self._parse_duration()
-            if self.actual_duration:
-                log.info("Placeholder duration: %.10fs", self.actual_duration)
-            if rc != 0 and self._stderr_lines:
-                log.warning("Placeholder exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
-            return rc
-        return -1
-
-    def kill(self) -> None:
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
-            self.proc.wait()
-            log.debug("Placeholder killed")
-
-    @property
-    def stdout(self):
-        return self.proc.stdout if self.proc else None
+            self._stderr_thread = __import__("threading").Thread(
+                target=self._drain_stderr, daemon=True,
+            )
+            self._stderr_thread.start()

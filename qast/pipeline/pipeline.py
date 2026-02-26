@@ -13,7 +13,6 @@ PTS offsets use exact 90 kHz integer ticks — no float-based computation.
 from __future__ import annotations
 
 import threading
-import time
 from typing import TYPE_CHECKING
 
 from .. import config
@@ -82,7 +81,6 @@ class Pipeline:
         self._total_audio_samples: int = 0  # cumulative audio samples across all segments
         # Public state for progress bar / status API
         self.now_playing: str | None = None
-        self.segment_start_time: float | None = None
         self.current_duration: float | None = None
 
     def start_single(
@@ -90,8 +88,10 @@ class Pipeline:
         source_urls: list[str],
         is_live: bool = False,
         title: str | None = None,
+        duration: float | None = None,
         loading_duration: float = LOADING_DURATION,
         show_placeholder: bool = True,
+        loop: bool = False,
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
         if self.master:
@@ -105,7 +105,7 @@ class Pipeline:
 
         self._bridge_thread = threading.Thread(
             target=self._bridge_single,
-            args=(source_urls, is_live, title, loading_duration, show_placeholder),
+            args=(source_urls, is_live, title, duration, loading_duration, show_placeholder, loop),
             daemon=True,
         )
         self._bridge_thread.start()
@@ -116,8 +116,10 @@ class Pipeline:
         source_urls: list[str],
         is_live: bool,
         title: str | None,
+        duration: float | None = None,
         loading_duration: float = LOADING_DURATION,
         show_placeholder: bool = True,
+        loop: bool = False,
     ) -> None:
         """Bridge for single-video mode: optional placeholder then real segment."""
         sink = self._get_sink()
@@ -137,13 +139,13 @@ class Pipeline:
                 self._advance_offset()
 
             # Loop the segment until shutdown/Ctrl+C
-            loop = 1
+            loop_count = 1
             consecutive_failures = 0
             self.now_playing = title
-            self.current_duration = None
+            self.current_duration = duration
+
             while not self._shutdown_event.is_set():
-                log.info("Playing (loop %d)", loop)
-                self.segment_start_time = time.monotonic()
+                log.info("Playing (loop %d)", loop_count)
                 seg = SegmentFFmpeg(source_urls, is_live=is_live)
                 self._run_segment(seg, sink)
 
@@ -156,11 +158,11 @@ class Pipeline:
                         log.error("Segment failed %d times in a row, giving up", consecutive_failures)
                         break
 
-                if is_live:
-                    break  # live streams don't loop
+                if is_live or not loop:
+                    break
 
                 self._close_save()  # only save first pass
-                loop += 1
+                loop_count += 1
         except _PipelineShutdown:
             log.debug("Bridge: shutdown requested")
         finally:
@@ -211,6 +213,9 @@ class Pipeline:
                     log.info("Queue exhausted")
                     break
 
+                # Start resolving the next item while this one plays
+                queue.start_prefetch()
+
                 # Per-item placeholder (falls back to pipeline-level default)
                 item_show_placeholder = show_placeholder and item.show_placeholder
                 if item_show_placeholder:
@@ -237,7 +242,7 @@ class Pipeline:
                 # Update state for progress bar / status API
                 self.now_playing = item.title
                 self.current_duration = item.duration
-                self.segment_start_time = time.monotonic()
+    
 
                 # Create segment based on item type
                 if item.capture:
@@ -273,9 +278,6 @@ class Pipeline:
                 if not save_closed and queue.loop_count > 0:
                     self._close_save()
                     save_closed = True
-
-                # Start prefetch for next item
-                queue.start_prefetch()
 
         except _PipelineShutdown:
             log.debug("Bridge queue: shutdown requested")
@@ -316,7 +318,6 @@ class Pipeline:
 
         self.now_playing = title or "Capture"
         self.current_duration = getattr(segment, 'duration', None)
-        self.segment_start_time = time.monotonic()
 
         self._rewriter.set_offset(0)
         try:
@@ -522,7 +523,6 @@ class Pipeline:
         log.info("Shutting down pipeline")
         self._close_save()
         self.now_playing = None
-        self.segment_start_time = None
         self.current_duration = None
         self._shutdown_event.set()
         self._skip_event.set()  # unblock any segment reads

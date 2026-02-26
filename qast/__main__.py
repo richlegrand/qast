@@ -79,7 +79,7 @@ def main() -> None:
     verbose = args.verbose
     try:
         device = _select_device_auto(devices, args.device)
-        print(f"\nSelected: {device.name} [{device.protocol.upper()}]\n")
+        print(f"\nSelected: {device.name}\n")
 
         raw_ts = device.protocol in ("roku", "dlna")
 
@@ -171,6 +171,7 @@ def main() -> None:
                 print("Resolving...")
                 resolved = resolve(urls[0], cookies_from_browser=args.cookies_from_browser)
 
+                media_duration: float | None = None
                 if resolved:
                     if verbose:
                         print(f"  Title: {resolved.title}")
@@ -185,6 +186,7 @@ def main() -> None:
                     title = resolved.title
                     source_urls = resolved.source_urls
                     is_live = resolved.is_live
+                    media_duration = resolved.duration
 
                 else:
                     if "youtube.com" in urls[0] or "youtu.be" in urls[0]:
@@ -196,9 +198,9 @@ def main() -> None:
                     is_live = False
                     if os.path.isfile(urls[0]):
                         title = os.path.basename(urls[0])
-                        probed_dur = probe_duration(urls[0])
-                        if verbose and probed_dur:
-                            mins, secs = divmod(int(probed_dur), 60)
+                        media_duration = probe_duration(urls[0])
+                        if verbose and media_duration:
+                            mins, secs = divmod(int(media_duration), 60)
                             print(f"  Duration: {mins}m{secs:02d}s (via ffprobe)")
                     else:
                         title = None
@@ -206,7 +208,9 @@ def main() -> None:
                 if verbose:
                     print("Starting pipeline...")
                 pipeline.start_single(source_urls, is_live=is_live, title=title,
-                                      show_placeholder=not args.no_placeholder)
+                                      duration=media_duration,
+                                      show_placeholder=not args.no_placeholder,
+                                      loop=args.repeat)
 
             else:
                 # Queue mode — multiple URLs
@@ -217,6 +221,10 @@ def main() -> None:
                 for u in urls:
                     queue.add(u)
                 queue.close()
+
+                # Eagerly resolve the first item so the user sees progress
+                print("Resolving...")
+                queue.resolve_next()
 
                 if verbose:
                     print(f"Starting pipeline with {len(urls)} items...")

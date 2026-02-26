@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,7 +26,7 @@ def _fmt_time(seconds: float) -> str:
 class ProgressBar:
     """Two-line progress display updated in a daemon thread.
 
-    Line 1: ▶ Title  [elapsed / total]  ████░░░░  pct%
+    Line 1: ▶ Title  (duration)
     Line 2:   Up next: ... (N pending)
     """
 
@@ -81,24 +80,17 @@ class ProgressBar:
         except OSError:
             cols = 80
 
-        start = self._pipeline.segment_start_time
-        elapsed = time.monotonic() - start if start else 0.0
         duration = self._pipeline.current_duration
 
-        # Build time string
+        # Build duration string
         if duration and duration > 0:
-            pct = min(elapsed / duration, 1.0)
-            time_str = f"[{_fmt_time(elapsed)} / {_fmt_time(duration)}]"
-        elif duration is None or duration == 0:
-            pct = -1  # unknown
-            time_str = f"[{_fmt_time(elapsed)}]"
+            duration_str = f"({_fmt_time(duration)})"
         else:
-            pct = -1
-            time_str = f"[{_fmt_time(elapsed)}]"
+            duration_str = ""
 
         # Truncate title if needed
         prefix = "\u25b6 "  # ▶
-        max_title = cols - len(prefix) - len(time_str) - 4  # padding
+        max_title = cols - len(prefix) - len(duration_str) - 2
         if max_title < 10:
             max_title = 10
         if len(title) > max_title:
@@ -106,37 +98,16 @@ class ProgressBar:
         else:
             display_title = title
 
-        # Line 1: title + time + optional bar
-        if pct >= 0:
-            pct_str = f"{int(pct * 100):3d}%"
-            # Bar takes remaining space
-            used = len(prefix) + len(display_title) + 2 + len(time_str) + 2 + len(pct_str) + 2
-            bar_width = cols - used
-            if bar_width < 5:
-                bar_width = 0
-
-            if bar_width > 0:
-                filled = int(bar_width * pct)
-                bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-                line1 = f"{prefix}{display_title}  {time_str}  {bar}  {pct_str}"
-            else:
-                line1 = f"{prefix}{display_title}  {time_str}  {pct_str}"
+        # Line 1: title + duration
+        if duration_str:
+            line1 = f"{prefix}{display_title}  {duration_str}"
         else:
-            line1 = f"{prefix}{display_title}  {time_str}"
+            line1 = f"{prefix}{display_title}"
 
         # Line 2: queue info
         line2 = ""
         if self._queue:
-            with self._queue._lock:
-                pending_count = len(self._queue._pending)
-                # Peek at the next resolved item for "up next"
-                next_title = None
-                if self._queue._resolved:
-                    next_title = self._queue._resolved[0].title
-                elif self._queue._pending:
-                    qi = self._queue._pending[0]
-                    next_title = qi.title or qi.url or qi.capture or "item"
-
+            pending_count, next_title = self._queue.peek_next()
             if next_title:
                 if pending_count > 0:
                     line2 = f"  Up next: {next_title} ({pending_count} pending)"

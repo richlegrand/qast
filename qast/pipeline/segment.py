@@ -1,4 +1,4 @@
-"""Segment ffmpeg — transcodes a source to MPEG-TS on stdout."""
+"""Segment base class and SegmentFFmpeg — transcodes sources to MPEG-TS."""
 
 from __future__ import annotations
 
@@ -18,64 +18,27 @@ _FRAME_RE = re.compile(r"frame=\s*(\d+)")
 _VIDEO_FPS = int(config.VIDEO_FPS)
 
 
-class SegmentFFmpeg:
-    """Wraps an ffmpeg process that transcodes source URL(s) to MPEG-TS.
+class SegmentBase:
+    """Common base for all ffmpeg-based segments.
 
-    stdout produces MPEG-TS data. stderr is drained by a background thread.
-    After wait(), `actual_duration` contains the encoded duration computed
-    from the frame count.
+    Subclasses must implement _build_cmd() and may override start().
+    Provides shared stderr draining, duration parsing, wait/kill, and stdout.
     """
 
-    def __init__(
-        self,
-        source_urls: list[str],
-        is_live: bool = False,
-        duration: float | None = None,
-    ) -> None:
-        self.source_urls = source_urls
-        self.is_live = is_live
-        self.duration = duration
+    _log_name: str = "Segment"
+
+    def __init__(self) -> None:
         self.proc: subprocess.Popen | None = None
         self.actual_duration: float | None = None
         self._stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
 
     def _build_cmd(self) -> list[str]:
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
-
-        if self.is_live:
-            cmd += ["-re"]
-
-        for url in self.source_urls:
-            cmd += ["-i", url]
-
-        if self.duration is not None:
-            cmd += ["-t", str(self.duration)]
-
-        cmd += [
-            "-c:v", config.VIDEO_CODEC,
-            "-preset", config.VIDEO_PRESET,
-            "-b:v", config.VIDEO_BITRATE,
-            "-s", config.VIDEO_SIZE,
-            "-r", config.VIDEO_FPS,
-            "-g", config.VIDEO_GOP,
-            "-c:a", config.AUDIO_CODEC,
-            "-ar", config.AUDIO_SAMPLE_RATE,
-            "-ac", config.AUDIO_CHANNELS,
-            "-b:a", config.AUDIO_BITRATE,
-        ]
-
-        cmd += [
-            "-shortest",
-            "-muxdelay", "0", "-muxpreload", "0",
-            "-flush_packets", "1",
-            "-f", "mpegts", "pipe:1",
-        ]
-        return cmd
+        raise NotImplementedError
 
     def start(self) -> None:
         cmd = self._build_cmd()
-        log.info("Segment ffmpeg: %s", " ".join(cmd))
+        log.info("%s: %s", self._log_name, " ".join(cmd))
         self.proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -122,11 +85,11 @@ class SegmentFFmpeg:
                 self._stderr_thread.join(timeout=2)
             self.actual_duration = self._parse_duration()
             if self.actual_duration:
-                log.info("Segment duration: %.10fs", self.actual_duration)
+                log.info("%s duration: %.10fs", self._log_name, self.actual_duration)
             if rc != 0 and self._stderr_lines:
-                log.warning("Segment ffmpeg exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
+                log.warning("%s exited %d:\n%s", self._log_name, rc, "\n".join(self._stderr_lines[-10:]))
             elif self._stderr_lines:
-                log.debug("Segment ffmpeg stderr:\n%s", "\n".join(self._stderr_lines[-5:]))
+                log.debug("%s stderr:\n%s", self._log_name, "\n".join(self._stderr_lines[-5:]))
             return rc
         return -1
 
@@ -134,8 +97,45 @@ class SegmentFFmpeg:
         if self.proc and self.proc.poll() is None:
             self.proc.kill()
             self.proc.wait()
-            log.debug("Segment ffmpeg killed")
+            log.debug("%s killed", self._log_name)
 
     @property
     def stdout(self):
         return self.proc.stdout if self.proc else None
+
+
+class SegmentFFmpeg(SegmentBase):
+    """Wraps an ffmpeg process that transcodes source URL(s) to MPEG-TS.
+
+    stdout produces MPEG-TS data. stderr is drained by a background thread.
+    After wait(), `actual_duration` contains the encoded duration computed
+    from the frame count.
+    """
+
+    _log_name = "Segment ffmpeg"
+
+    def __init__(
+        self,
+        source_urls: list[str],
+        is_live: bool = False,
+        duration: float | None = None,
+    ) -> None:
+        super().__init__()
+        self.source_urls = source_urls
+        self.is_live = is_live
+        self.duration = duration
+
+    def _build_cmd(self) -> list[str]:
+        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
+
+        if self.is_live:
+            cmd += ["-re"]
+
+        for url in self.source_urls:
+            cmd += ["-i", url]
+
+        if self.duration is not None:
+            cmd += ["-t", str(self.duration)]
+
+        cmd += config.ffmpeg_output_args()
+        return cmd

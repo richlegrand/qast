@@ -56,3 +56,52 @@ DLNA_FLAGS = (
 # Fake Content-Length for DLNA renderers that refuse streams without one.
 # Standard trick from pulseaudio-dlna / Serviio.
 DLNA_FAKE_CONTENT_LENGTH = 100 * 1024 * 1024 * 1024  # 100 GB
+
+
+def ffmpeg_output_args(
+    preset: str | None = None,
+    tune: str | None = None,
+    flush_packets: bool = True,
+    pix_fmt: str | None = None,
+    scale: bool = True,
+) -> list[str]:
+    """Standard ffmpeg output encoding args for all segments."""
+    args = []
+    if scale:
+        # Build a -vf filter chain: fit source within VIDEO_SIZE, pad with
+        # black bars to preserve aspect ratio (letterbox / pillarbox).
+        filters: list[str] = []
+        if pix_fmt:
+            filters.append(f"format={pix_fmt}")
+        filters.append(
+            f"scale={VIDEO_SIZE.replace('x', ':')}:"
+            "force_original_aspect_ratio=decrease"
+        )
+        filters.append(
+            f"pad={VIDEO_SIZE.replace('x', ':')}:(ow-iw)/2:(oh-ih)/2:black"
+        )
+        args += ["-vf", ",".join(filters)]
+    else:
+        if pix_fmt:
+            args += ["-pix_fmt", pix_fmt]
+    args += [
+        "-c:v", VIDEO_CODEC,
+        "-preset", preset or VIDEO_PRESET,
+    ]
+    if tune:
+        args += ["-tune", tune]
+    args += [
+        "-b:v", VIDEO_BITRATE,
+        "-r", VIDEO_FPS,
+        "-g", VIDEO_GOP,
+        "-c:a", AUDIO_CODEC,
+        "-ar", AUDIO_SAMPLE_RATE,
+        "-ac", AUDIO_CHANNELS,
+        "-b:a", AUDIO_BITRATE,
+        "-shortest",
+        "-muxdelay", "0", "-muxpreload", "0",
+    ]
+    if flush_packets:
+        args += ["-flush_packets", "1"]
+    args += ["-f", "mpegts", "pipe:1"]
+    return args

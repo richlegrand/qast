@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import re
 import subprocess
-import threading
 
 from . import config
 from .log import get_logger
+from .pipeline.segment import SegmentBase
 
 log = get_logger("capture")
-
-_FRAME_RE = re.compile(r"frame=\s*(\d+)")
-_VIDEO_FPS = int(config.VIDEO_FPS)
 
 
 def _get_primary_monitor() -> tuple[int, int, int, int]:
@@ -109,11 +106,13 @@ def _find_window_by_title(title: str) -> tuple[int, int, int]:
     return window_id, width, height
 
 
-class ScreenSegment:
+class ScreenSegment(SegmentBase):
     """Captures the screen via ffmpeg x11grab, outputting MPEG-TS on stdout.
 
     Same interface as SegmentFFmpeg: start(), wait(), kill(), stdout.
     """
+
+    _log_name = "Screen capture"
 
     def __init__(
         self,
@@ -122,14 +121,11 @@ class ScreenSegment:
         window_size: tuple[int, int] | None = None,
         duration: float | None = None,
     ) -> None:
+        super().__init__()
         self.cursor = cursor
         self.window_id = window_id
         self.window_size = window_size
         self.duration = duration
-        self.proc: subprocess.Popen | None = None
-        self.actual_duration: float | None = None
-        self._stderr_lines: list[str] = []
-        self._stderr_thread: threading.Thread | None = None
 
     def _build_cmd(self) -> list[str]:
         draw_mouse = "1" if self.cursor else "0"
@@ -168,98 +164,26 @@ class ScreenSegment:
         ]
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
-        cmd += [
-            # Video encoding (x11grab is BGR0, must convert to yuv420p for device compatibility)
-            "-pix_fmt", "yuv420p",
-            "-c:v", config.VIDEO_CODEC,
-            "-preset", config.VIDEO_PRESET,
-            "-b:v", config.VIDEO_BITRATE,
-            "-s", config.VIDEO_SIZE,
-            "-r", config.VIDEO_FPS,
-            "-g", config.VIDEO_GOP,
-            # Audio encoding
-            "-c:a", config.AUDIO_CODEC,
-            "-ar", config.AUDIO_SAMPLE_RATE,
-            "-ac", config.AUDIO_CHANNELS,
-            "-b:a", config.AUDIO_BITRATE,
-            # Mux settings
-            "-shortest",
-            "-muxdelay", "0", "-muxpreload", "0",
-            "-flush_packets", "1",
-            "-f", "mpegts", "pipe:1",
-        ]
+        cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
         return cmd
 
-    def start(self) -> None:
-        cmd = self._build_cmd()
-        log.info("Screen capture: %s", " ".join(cmd))
-        self.proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
-        self._stderr_thread.start()
 
-    def _drain_stderr(self) -> None:
-        assert self.proc and self.proc.stderr
-        try:
-            for line in self.proc.stderr:
-                text = line.decode(errors="replace").rstrip()
-                if text:
-                    self._stderr_lines.append(text)
-        except Exception:
-            pass
-
-    def _parse_duration(self) -> float | None:
-        for line in reversed(self._stderr_lines):
-            matches = _FRAME_RE.findall(line)
-            if matches:
-                video_frames = int(matches[-1])
-                return video_frames / _VIDEO_FPS
-        return None
-
-    def wait(self) -> int:
-        if self.proc:
-            rc = self.proc.wait()
-            if self._stderr_thread:
-                self._stderr_thread.join(timeout=2)
-            self.actual_duration = self._parse_duration()
-            if self.actual_duration:
-                log.info("Screen capture duration: %.1fs", self.actual_duration)
-            if rc != 0 and self._stderr_lines:
-                log.warning("Screen capture exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
-            return rc
-        return -1
-
-    def kill(self) -> None:
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
-            self.proc.wait()
-            log.debug("Screen capture killed")
-
-    @property
-    def stdout(self):
-        return self.proc.stdout if self.proc else None
-
-
-class WebcamSegment:
+class WebcamSegment(SegmentBase):
     """Captures webcam via ffmpeg v4l2, outputting MPEG-TS on stdout.
 
     Same interface as ScreenSegment: start(), wait(), kill(), stdout.
     """
+
+    _log_name = "Webcam capture"
 
     def __init__(
         self,
         device: str = "/dev/video0",
         duration: float | None = None,
     ) -> None:
+        super().__init__()
         self.device = device
         self.duration = duration
-        self.proc: subprocess.Popen | None = None
-        self.actual_duration: float | None = None
-        self._stderr_lines: list[str] = []
-        self._stderr_thread: threading.Thread | None = None
 
     def _build_cmd(self) -> list[str]:
         cmd = [
@@ -274,73 +198,5 @@ class WebcamSegment:
         ]
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
-        cmd += [
-            "-pix_fmt", "yuv420p",
-            "-c:v", config.VIDEO_CODEC,
-            "-preset", config.VIDEO_PRESET,
-            "-b:v", config.VIDEO_BITRATE,
-            "-s", config.VIDEO_SIZE,
-            "-r", config.VIDEO_FPS,
-            "-g", config.VIDEO_GOP,
-            "-c:a", config.AUDIO_CODEC,
-            "-ar", config.AUDIO_SAMPLE_RATE,
-            "-ac", config.AUDIO_CHANNELS,
-            "-b:a", config.AUDIO_BITRATE,
-            "-shortest",
-            "-muxdelay", "0", "-muxpreload", "0",
-            "-flush_packets", "1",
-            "-f", "mpegts", "pipe:1",
-        ]
+        cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
         return cmd
-
-    def start(self) -> None:
-        cmd = self._build_cmd()
-        log.info("Webcam capture: %s", " ".join(cmd))
-        self.proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
-        self._stderr_thread.start()
-
-    def _drain_stderr(self) -> None:
-        assert self.proc and self.proc.stderr
-        try:
-            for line in self.proc.stderr:
-                text = line.decode(errors="replace").rstrip()
-                if text:
-                    self._stderr_lines.append(text)
-        except Exception:
-            pass
-
-    def _parse_duration(self) -> float | None:
-        for line in reversed(self._stderr_lines):
-            matches = _FRAME_RE.findall(line)
-            if matches:
-                video_frames = int(matches[-1])
-                return video_frames / _VIDEO_FPS
-        return None
-
-    def wait(self) -> int:
-        if self.proc:
-            rc = self.proc.wait()
-            if self._stderr_thread:
-                self._stderr_thread.join(timeout=2)
-            self.actual_duration = self._parse_duration()
-            if self.actual_duration:
-                log.info("Webcam capture duration: %.1fs", self.actual_duration)
-            if rc != 0 and self._stderr_lines:
-                log.warning("Webcam capture exited %d:\n%s", rc, "\n".join(self._stderr_lines[-10:]))
-            return rc
-        return -1
-
-    def kill(self) -> None:
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
-            self.proc.wait()
-            log.debug("Webcam capture killed")
-
-    @property
-    def stdout(self):
-        return self.proc.stdout if self.proc else None

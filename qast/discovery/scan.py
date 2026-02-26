@@ -15,7 +15,7 @@ from .types import Device
 
 log = get_logger("discovery.scan")
 
-PROTO_TAG = {"cast": "Cast", "dlna": "DLNA", "roku": "Roku"}
+PROTO_TAG = {"cast": "Chromecast", "dlna": "DLNA", "roku": "Roku"}
 
 
 def discover_all(timeout: int = DISCOVERY_TIMEOUT, show_all: bool = False) -> list[Device]:

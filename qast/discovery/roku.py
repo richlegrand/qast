@@ -2,55 +2,30 @@
 
 from __future__ import annotations
 
-import socket
-import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 from ..log import get_logger
+from .ssdp import ssdp_search
 from .types import Device
 
 log = get_logger("discovery.roku")
 
 
+def _normalize_roku_url(loc: str) -> str:
+    """Ensure Roku location URLs end with /."""
+    if not loc.endswith("/"):
+        loc += "/"
+    return loc
+
+
 def discover_roku(timeout: int = 5) -> list[Device]:
     """SSDP M-SEARCH for Roku devices."""
-    mx = min(timeout, 5)
-    msg = (
-        "M-SEARCH * HTTP/1.1\r\n"
-        "HOST: 239.255.255.250:1900\r\n"
-        'MAN: "ssdp:discover"\r\n'
-        f"MX: {mx}\r\n"
-        "ST: roku:ecp\r\n"
-        "\r\n"
-    ).encode()
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.settimeout(2)
-
-    for _ in range(3):
-        sock.sendto(msg, ("239.255.255.250", 1900))
-
-    locations: set[str] = set()
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            data, _ = sock.recvfrom(4096)
-            text = data.decode(errors="replace")
-            for line in text.splitlines():
-                if line.lower().startswith("location:"):
-                    loc = line.split(":", 1)[1].strip()
-                    if not loc.endswith("/"):
-                        loc += "/"
-                    locations.add(loc)
-        except socket.timeout:
-            if time.time() < deadline:
-                sock.sendto(msg, ("239.255.255.250", 1900))
-                continue
-            break
-    sock.close()
+    locations = ssdp_search(
+        "roku:ecp", timeout=timeout,
+        normalize_location=_normalize_roku_url,
+    )
 
     devices: list[Device] = []
     for loc in locations:
