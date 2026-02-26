@@ -20,7 +20,7 @@ _DURATION_RE = re.compile(
 )
 
 
-def _parse_duration(s: str) -> float:
+def parse_duration(s: str) -> float:
     """Parse durations like '30s', '5m', '1h', '1h30m', '5m30s', or bare seconds."""
     s = s.strip().lower()
     m = re.fullmatch(r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?", s)
@@ -52,7 +52,7 @@ def _split_duration_suffix(raw: str) -> tuple[str, float | None]:
 
     suffix = raw[idx + 1:]
     if _is_duration_suffix(suffix):
-        return raw[:idx], _parse_duration(suffix)
+        return raw[:idx], parse_duration(suffix)
     return raw, None
 
 

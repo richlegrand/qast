@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from collections import deque
 from dataclasses import dataclass
 
 from .log import get_logger
-from .resolve.ytdlp import ResolvedURL, download_audio, probe_duration, resolve
+from .resolve.ytdlp import ResolvedURL, resolve_source
 
 log = get_logger("queue")
 
@@ -105,33 +104,15 @@ class PlayQueue:
                 cursor=qi.cursor,
             )
 
-        url = qi.url
-        assert url is not None
-        log.info("Resolving: %s", url)
-        resolved = resolve(url, cookies_from_browser=self._cookies_from_browser)
-        if resolved:
-            download_audio(resolved)
-            resolved.show_placeholder = qi.show_placeholder
-            if qi.duration is not None:
-                resolved.duration = qi.duration
-            return resolved
-
-        # yt-dlp failed — pass raw URL directly to ffmpeg
-        if "youtube.com" in url or "youtu.be" in url:
-            log.warning("yt-dlp failed for %s — YouTube may be blocking requests. "
-                        "Try --cookies-from-browser chrome", url)
-        else:
-            log.warning("Failed to resolve %s, using raw URL", url)
-        duration = probe_duration(url) if os.path.isfile(url) else None
-        if qi.duration is not None:
-            duration = qi.duration
-        return ResolvedURL(
-            title=qi.title or url,
-            duration=duration,
-            is_live=False,
-            source_urls=[url],
-            show_placeholder=qi.show_placeholder,
+        assert qi.url is not None
+        resolved = resolve_source(
+            qi.url,
+            duration=qi.duration,
+            title=qi.title,
+            cookies_from_browser=self._cookies_from_browser,
         )
+        resolved.show_placeholder = qi.show_placeholder
+        return resolved
 
     def resolve_next(self) -> None:
         """Resolve the next pending item synchronously (for eager first-item resolution)."""

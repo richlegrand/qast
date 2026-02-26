@@ -144,6 +144,44 @@ def download_audio(resolved: ResolvedURL) -> None:
     log.info("Audio downloaded (%d bytes)", os.path.getsize(path))
 
 
+def resolve_source(
+    url: str,
+    duration: float | None = None,
+    title: str | None = None,
+    cookies_from_browser: str | None = None,
+) -> ResolvedURL:
+    """Resolve a URL or file path into a ResolvedURL, with fallback.
+
+    Tries yt-dlp first. On failure, falls back to passing the raw URL
+    directly to ffmpeg (probing duration via ffprobe for local files).
+    Always returns a ResolvedURL — never None.
+    """
+    log.info("Resolving: %s", url)
+    resolved = resolve(url, cookies_from_browser=cookies_from_browser)
+    if resolved:
+        download_audio(resolved)
+        if duration is not None:
+            resolved.duration = duration
+        return resolved
+
+    # yt-dlp failed — pass raw URL directly to ffmpeg
+    if "youtube.com" in url or "youtu.be" in url:
+        log.warning("yt-dlp failed for %s — YouTube may be blocking requests. "
+                    "Try --cookies-from-browser chrome", url)
+    else:
+        log.warning("Failed to resolve %s, using raw URL", url)
+    media_duration = probe_duration(url) if os.path.isfile(url) else None
+    if duration is not None:
+        media_duration = duration
+    fallback_title = title or (os.path.basename(url) if os.path.isfile(url) else url)
+    return ResolvedURL(
+        title=fallback_title,
+        duration=media_duration,
+        is_live=False,
+        source_urls=[url],
+    )
+
+
 def _extract_live_urls(info: dict) -> list[str]:
     """Extract stream URL(s) for a live source."""
     # Prefer manifest URL

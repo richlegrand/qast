@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import termios
 import time
@@ -20,24 +19,10 @@ from .pipeline.pipeline import Pipeline
 from .pipeline.segment import SegmentFFmpeg
 from .progress import ProgressBar
 from .queue import PlayQueue
-from .resolve.ytdlp import download_audio, probe_duration, resolve
-from .source import merge_duration_args, parse_source, has_capture_source
+from .resolve.ytdlp import resolve_source
+from .source import merge_duration_args, parse_duration, parse_source, has_capture_source
 
 log = get_logger("main")
-
-
-def _parse_duration(s: str) -> float:
-    """Parse durations like '30s', '5m', '1h', '1h30m', '5m30s', or bare seconds."""
-    import re
-
-    s = s.strip().lower()
-    m = re.fullmatch(r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?", s)
-    if m and m.group(0):
-        h = float(m.group(1) or 0)
-        mins = float(m.group(2) or 0)
-        secs = float(m.group(3) or 0)
-        return h * 3600 + mins * 60 + secs
-    return float(s)
 
 
 def _select_device_auto(devices: list[Device], selector: str | None) -> Device:
@@ -85,7 +70,7 @@ def main() -> None:
 
         raw_ts = device.protocol in ("roku", "dlna")
 
-        duration = _parse_duration(args.duration) if args.duration else None
+        duration = parse_duration(args.duration) if args.duration else None
 
         if args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin
@@ -135,56 +120,28 @@ def main() -> None:
             if len(items) == 1 and not items[0].capture:
                 # Single URL mode — resolve, show placeholder, play
                 item = items[0]
-                effective_duration = item.duration
-
                 pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
 
                 print("Resolving...")
-                resolved = resolve(item.url, cookies_from_browser=args.cookies_from_browser)
+                resolved = resolve_source(
+                    item.url,
+                    duration=item.duration,
+                    cookies_from_browser=args.cookies_from_browser,
+                )
+                resolved_obj = resolved
 
-                media_duration: float | None = None
-                if resolved:
-                    if verbose:
-                        print(f"  Title: {resolved.title}")
-                        if resolved.duration:
-                            mins, secs = divmod(int(resolved.duration), 60)
-                            print(f"  Duration: {mins}m{secs:02d}s")
-                    if resolved.is_live:
-                        print("  Live stream detected.")
-                    elif len(resolved.source_urls) > 1:
-                        download_audio(resolved)
-                    resolved_obj = resolved
-                    title = resolved.title
-                    source_urls = resolved.source_urls
-                    is_live = resolved.is_live
-                    media_duration = resolved.duration
-                    if effective_duration is not None:
-                        media_duration = effective_duration
-
-                else:
-                    if "youtube.com" in item.url or "youtu.be" in item.url:
-                        print("  yt-dlp failed to extract video. YouTube may be blocking requests.")
-                        print("  Try: qast --cookies-from-browser chrome <url>")
-                    elif verbose:
-                        print("  yt-dlp failed, passing URL directly to ffmpeg.")
-                    source_urls = [item.url]
-                    is_live = False
-                    if os.path.isfile(item.url):
-                        title = os.path.basename(item.url)
-                        media_duration = probe_duration(item.url)
-                        if effective_duration is not None:
-                            media_duration = effective_duration
-                        if verbose and media_duration:
-                            mins, secs = divmod(int(media_duration), 60)
-                            print(f"  Duration: {mins}m{secs:02d}s (via ffprobe)")
-                    else:
-                        title = None
-                        media_duration = effective_duration
+                if verbose:
+                    print(f"  Title: {resolved.title}")
+                    if resolved.duration:
+                        mins, secs = divmod(int(resolved.duration), 60)
+                        print(f"  Duration: {mins}m{secs:02d}s")
+                if resolved.is_live:
+                    print("  Live stream detected.")
 
                 if verbose:
                     print("Starting pipeline...")
-                pipeline.start_single(source_urls, is_live=is_live, title=title,
-                                      duration=media_duration,
+                pipeline.start_single(resolved.source_urls, is_live=resolved.is_live,
+                                      title=resolved.title, duration=resolved.duration,
                                       show_placeholder=not args.no_placeholder,
                                       loop=args.repeat)
 
