@@ -17,7 +17,7 @@ import time
 from typing import TYPE_CHECKING
 
 from .. import config
-from ..capture import ScreenSegment, WebcamSegment, _find_window_by_title
+from ..capture import ScreenSegment, WebcamSegment, _find_window_by_title, _select_window
 from ..log import get_logger
 from ..serve.server import StreamServer
 from .master import MasterMuxer
@@ -403,10 +403,14 @@ class Pipeline:
     def _create_capture_segment(self, item) -> ScreenSegment | WebcamSegment:
         """Create a capture segment from a ResolvedURL with capture config."""
         if item.capture == "screen":
-            return ScreenSegment(duration=item.duration)
+            return ScreenSegment(cursor=item.cursor, duration=item.duration)
         elif item.capture == "window":
-            wid, w, h = _find_window_by_title(item.window_title)
+            if item.window_title:
+                wid, w, h = _find_window_by_title(item.window_title)
+            else:
+                wid, w, h = _select_window()
             return ScreenSegment(
+                cursor=item.cursor,
                 window_id=wid,
                 window_size=(w, h),
                 duration=item.duration,
@@ -415,7 +419,8 @@ class Pipeline:
             return WebcamSegment(duration=item.duration)
         elif item.capture == "browser":
             from .browser import BrowserSegment
-            return BrowserSegment(item.url, duration=item.duration)
+            url = item.source_urls[0] if item.source_urls else ""
+            return BrowserSegment(url, duration=item.duration)
         else:
             raise ValueError(f"Unknown capture type: {item.capture}")
 

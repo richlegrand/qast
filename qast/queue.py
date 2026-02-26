@@ -17,11 +17,12 @@ log = get_logger("queue")
 class QueueItem:
     """A queued item — either a URL or a capture source."""
     url: str | None = None                      # URL to resolve via yt-dlp
-    capture: str | None = None                   # "screen" | "window" | "webcam"
+    capture: str | None = None                   # "screen" | "window" | "webcam" | "browser"
     window_title: str | None = None              # for capture="window"
     duration: float | None = None                # per-item duration limit
     show_placeholder: bool = True                # per-item placeholder toggle
     title: str | None = None                     # override title (for display)
+    cursor: bool = True                          # show cursor in screen/window capture
 
 
 class PlayQueue:
@@ -91,14 +92,17 @@ class PlayQueue:
         """Resolve a QueueItem into a ResolvedURL."""
         if qi.capture:
             # Capture items don't need yt-dlp resolution
+            # Browser items pass their URL through source_urls
+            source_urls = [qi.url] if qi.capture == "browser" and qi.url else []
             return ResolvedURL(
                 title=qi.title or qi.capture.title(),
                 duration=qi.duration,
                 is_live=False,
-                source_urls=[],
+                source_urls=source_urls,
                 capture=qi.capture,
                 window_title=qi.window_title,
                 show_placeholder=qi.show_placeholder,
+                cursor=qi.cursor,
             )
 
         url = qi.url

@@ -13,17 +13,12 @@ class Args:
     verbose: bool
     save_stream: str | None
     cookies_from_browser: str | None
-    screen: bool
-    window: bool
     no_cursor: bool
     show_all: bool
     repeat: bool
     shuffle: bool
     no_placeholder: bool
-    window_title: str | None
     duration: str | None
-    webcam: bool
-    browser: bool
     playlist: str | None
 
 
@@ -35,7 +30,9 @@ def parse_args(argv: list[str] | None = None) -> Args:
     parser.add_argument(
         "urls",
         nargs="*",
-        help="URLs to cast (if none given, prompts interactively)",
+        metavar="SOURCE",
+        help="Sources to cast: URLs, files, screen[@duration], webcam[@duration], "
+             "browser:<url>[@duration], window[:<title>][@duration] (if none given, prompts interactively)",
     )
     parser.add_argument(
         "-d", "--device",
@@ -56,50 +53,17 @@ def parse_args(argv: list[str] | None = None) -> Args:
         metavar="BROWSER",
         help="Browser to extract cookies from (e.g. chrome, firefox, brave)",
     )
-
-    group = parser.add_argument_group("screen capture")
-    group.add_argument(
-        "--screen",
-        action="store_true",
-        default=False,
-        help="Capture screen and cast to device",
-    )
-    group.add_argument(
-        "--window",
-        action="store_true",
-        default=False,
-        help="Capture a specific window (click to select)",
-    )
-    group.add_argument(
+    parser.add_argument(
         "--no-cursor",
         action="store_true",
         default=False,
-        help="Hide mouse cursor in screen capture",
+        help="Hide mouse cursor in screen/window capture",
     )
-
-    group.add_argument(
-        "--window-title",
-        metavar="TITLE",
-        help="Capture a window matching TITLE (via xdotool search)",
-    )
-    group.add_argument(
-        "--webcam",
-        action="store_true",
-        default=False,
-        help="Capture webcam and cast to device",
-    )
-    group.add_argument(
-        "--browser",
-        action="store_true",
-        default=False,
-        help="Render a URL in headless Chromium and cast the result",
-    )
-    group.add_argument(
+    parser.add_argument(
         "--duration",
         metavar="TIME",
-        help="Limit capture duration (e.g. 30s, 5m, 1h)",
+        help="Default duration for sources without @duration (e.g. 30s, 5m, 1h, 5m30s)",
     )
-
     parser.add_argument(
         "--repeat",
         action="store_true",
@@ -121,7 +85,7 @@ def parse_args(argv: list[str] | None = None) -> Args:
     parser.add_argument(
         "--playlist",
         metavar="FILE",
-        help="Load URLs from a playlist file (one per line, '-' for stdin)",
+        help="Load sources from a playlist file (one per line, '-' for stdin)",
     )
     parser.add_argument(
         "--show-all",
@@ -137,16 +101,11 @@ def parse_args(argv: list[str] | None = None) -> Args:
         verbose=ns.verbose,
         save_stream=ns.save_stream,
         cookies_from_browser=ns.cookies_from_browser,
-        screen=ns.screen,
-        window=ns.window,
         no_cursor=ns.no_cursor,
         show_all=ns.show_all,
         repeat=ns.repeat,
         shuffle=ns.shuffle,
         no_placeholder=ns.no_placeholder,
-        window_title=ns.window_title,
         duration=ns.duration,
-        webcam=ns.webcam,
-        browser=ns.browser,
         playlist=ns.playlist,
     )

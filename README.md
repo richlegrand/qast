@@ -1,6 +1,6 @@
 # qast
 
-qast casts anything to your TV from the command line. 
+qast casts anything to any TV from the command line. 
 
 ```bash
 qast video.mov                                # Cast local file
@@ -27,7 +27,7 @@ In other words, TVs have inconsistent streaming support — content that plays f
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, different formats, different resolutions) back to back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, different formats, different resolutions) back-to-back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
 
 ## Install
 
@@ -106,7 +106,7 @@ qast --screen              # primary monitor
 qast --screen --no-cursor  # hide mouse cursor
 ```
 
-Works even if your TV doesn't support Miracast or AirPlay. Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
+Works even if your TV doesn't support Miracast or AirPlay. Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
 
 
 ### A single window
@@ -116,7 +116,8 @@ qast --window                        # click to select
 qast --window --window-title Grafana  # by title
 ```
 
-Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
+Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
+
 
 ### A webpage
 
@@ -133,7 +134,7 @@ Renders a URL in headless Chromium and casts the result to your TV. Great for da
 qast --webcam              # default camera
 ```
 
-Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below.
+Note, Chromecast works best for live streaming. See [FAQ](#faq) about live streaming. 
 
 ### Piped data
 
@@ -174,7 +175,7 @@ ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=30" -f mpegts - | qast -
 
 ## Queue mode
 
-Pass multiple sources to play them back to back as one continuous stream:
+Pass multiple sources to play them back-to-back as one continuous stream:
 
 ```bash
 qast \
@@ -183,24 +184,42 @@ qast \
   "https://youtube.com/watch?v=lofi-beats"
 ```
 
-During playback, you can type commands:
+### Per-item duration
 
+Append `@duration` to any source to limit how long it plays:
+
+```bash
+qast video.mp4@5m                            # play for 5 minutes
+qast screen@30s video.mp4@1m webcam@20s      # mixed sources with durations
+qast "browser:https://grafana.example.com"@5m video.mp4     # browser capture then video
+qast --duration 1m video1.mp4 video2.mp4@30s # global default + per-item override
 ```
-<URL>   add a URL to the queue
-s       skip current item
-?       show queue status
-q       quit
+
+The `@duration` can be a separate argument, useful for URLs containing `@`:
+
+```bash
+qast "https://user@host.com/video" @5m       # separate — unambiguous
 ```
+
+Source syntax:
+- `screen[@duration]` — screen capture
+- `webcam[@duration]` — webcam capture
+- `browser:<url>[@duration]` — headless browser capture
+- `window:<title>[@duration]` — window capture by title
+- `<url-or-file>[@duration]` — URL or local file
+
 
 ### Playlist files
 
-Plain text, one source per line:
+Plain text, one source per line. Supports the same source syntax including `@duration`:
 
 ```
 # morning.txt
 https://youtube.com/watch?v=VIDEO1
-https://youtube.com/watch?v=VIDEO2
+https://youtube.com/watch?v=VIDEO2@10m
 ~/Videos/workout.mp4
+screen@30s
+browser:https://grafana.example.com@5m
 ```
 
 ```bash
@@ -244,40 +263,21 @@ qast -d "Samsung" video.mp4         # by name (substring match)
 qast -d 0 video.mp4                 # by index
 ```
 
-## Live streaming
-
-All TVs I've tested want to buffer a few seconds of data before starting to render frames, which leads to latencies. If you're viewing your webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on the TV (for example).
-
-## How it works
- 
-```
-[source] → [yt-dlp resolve] → [ffmpeg transcode] → [TS rewriter] → [muxer] → [ring buffer] → [HTTP server] → [TV]
-```
-
-1. **Resolve** — yt-dlp extracts direct video URLs from YouTube etc. Local files and pipes skip this step.
-2. **Transcode** — ffmpeg normalizes everything to H.264/AAC in MPEG-TS. This is the lowest common denominator that every TV accepts.
-3. **Rewrite** — A TS rewriter ensures PTS/DTS continuity across segment boundaries, so the TV sees one seamless stream even when sources change.
-4. **Mux** — A continuously-running muxer accepts rewritten TS segments and produces the output format. For DLNA and Roku, the rewritten MPEG-TS is used directly. For Chromecast, the master muxer remuxes to fragmented MP4.
-5. **Buffer** — An in-memory ring buffer decouples the muxer from the HTTP server, absorbing bitrate variations.
-6. **Cast** — Protocol-specific signaling (DLNA SOAP, Roku ECP, or Chromecast protobuf) tells the TV to stream from a local URL which points to qast's HTTP server.
-7. **Serve** — The TV connects and qast streams the buffer contents over HTTP.
-
-See [architecture.md](architecture.md) for details.
-
 ## CLI reference
 
 ```
 qast [OPTIONS] [SOURCE...]
 
 Sources:
-  <file>                    Local video file
-  <url>                     YouTube, Vimeo, etc. (via yt-dlp)
-  --screen                  Capture primary screen
-  --window                  Capture window (click to select)
-  --window-title TITLE      Select window by title (use with --window)
-  --browser                 Render a URL in headless Chromium and cast
-  --webcam                  Capture default webcam
-  -                         Read from stdin
+  <file>[@duration]                  Local video file
+  <url>[@duration]                   YouTube, Vimeo, etc. (via yt-dlp)
+  screen[@duration]                  Capture primary screen
+  webcam[@duration]                  Capture default webcam
+  browser:<url>[@duration]           Render a URL in headless Chromium and cast
+  window:<title>[@duration]          Capture a window by title
+  -                                  Read from stdin
+
+  @duration can be attached (video.mp4@5m) or separate (video.mp4 @5m).
 
 Device:
   -d, --device NAME|INDEX   Select device by name (substring) or index
@@ -290,7 +290,7 @@ Queue:
 
 Capture:
   --no-cursor               Hide mouse cursor in screen capture
-  --duration TIME            Stop capture after TIME (e.g., 30s, 5m, 1h)
+  --duration TIME           Default duration for sources without @duration (e.g., 30s, 5m, 1h, 5m30s)
 
 Other:
   --cookies-from-browser B  Extract cookies from browser (chrome, firefox, brave) — helps when
@@ -298,6 +298,16 @@ Other:
   --save-stream FILE        Save the served stream to a file (fMP4 or TS, matching device format)
   -v, --verbose             Debug logging
   -h, --help                Show help
+```
+
+During playback, you can type commands (with <CR>):
+
+```
+<source[@duration]>   add a source to the queue (URLs, screen, webcam, etc.)
+s                     skip current item
+r <N>                 remove item by index
+?                     show queue status
+q                     quit
 ```
 
 ## Python API
@@ -393,14 +403,14 @@ while True:
 - **Movie marathon** — queue up the LOTR trilogy, watch without having to lift a finger. Put it on repeat: LOTR channel
 - **Curated kids content** — queue up YouTube Kids, PBS, etc.
 - **Digital signage** — Show "live" data, sales figures, number of users, household/company news, etc.
-- **MagicMirror cast** — cast your [MagicMirror]https://github.com/MagicMirrorOrg/MagicMirror to any screen 
+- **MagicMirror cast** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) to any screen 
 - **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, etc.
 
 ## FAQ
 
 **Why transcode everything?**
 
-Compatibility. TVs are picky about codecs, containers, and parameters. A Samsung might play your MKV; an LG might not. By normalizing to H.264 + AAC in MPEG-TS (or fragmented MP4 for Chromecast), qast hits the lowest common denominator that every TV accepts. It also enables seamless queue transitions — uniform codec parameters mean no discontinuities between sources.
+Compatibility. TVs are picky about codecs, containers, and parameters. A Samsung might play your MKV; an LG might not. By normalizing to H.264 + AAC in MPEG-TS (or fragmented MP4 for Chromecast), qast hits the lowest common denominator that every TV accepts. It also enables seamless queue transitions — uniform codec parameters mean no discontinuities between sources. Modern PCs typically have hardware encode support, so CPU usage is kept reasonably low.  
 
 **Can I seek within a video?**
 
@@ -418,12 +428,30 @@ Make sure your TV and computer are on the same network/VLAN. Try `qast -v` to se
 
 Yes — install the free [Media Assistant](https://channelstore.roku.com/details/782875) app from the Roku Channel Store, and enable "Control by mobile apps" in Settings > System > Advanced.
 
+**I'm seeing several seconds of latency, why is that?**
+
+Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. If you're viewing your webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on the TV (for example).
+
+## How it works
+ 
+```
+[source] → [yt-dlp resolve] → [ffmpeg transcode] → [TS rewriter] → [muxer] → [ring buffer] → [HTTP server] → [TV]
+```
+
+1. **Resolve** — yt-dlp extracts direct video URLs from YouTube etc. Local files and pipes skip this step.
+2. **Transcode** — ffmpeg normalizes everything to H.264/AAC in MPEG-TS. This is the lowest common denominator that every TV accepts.
+3. **Rewrite** — A TS rewriter ensures PTS/DTS continuity across segment boundaries, so the TV sees one seamless stream even when sources change.
+4. **Mux** — A continuously-running muxer accepts rewritten TS segments and produces the output format. For DLNA and Roku, the rewritten MPEG-TS is used directly. For Chromecast, the master muxer remuxes to fragmented MP4.
+5. **Buffer** — An in-memory ring buffer decouples the muxer from the HTTP server, absorbing bitrate variations.
+6. **Cast** — Protocol-specific signaling (DLNA SOAP, Roku ECP, or Chromecast protobuf) tells the TV to stream from a local URL which points to qast's HTTP server.
+7. **Serve** — The TV connects and qast streams the buffer contents over HTTP.
+
+See [architecture.md](architecture.md) for details.
+
 ## Upcoming features
 
 - **Multi-device casting** — cast the same stream to multiple TVs simultaneously (`qast -d "Living Room" -d "Kitchen" video.mp4`)
 - **Subtitles** — burn subtitles into the video stream via ffmpeg
-- **Pause/resume** — pause and resume playback on the TV
-- ~~**Webpage rendering** — cast any webpage to TV via headless Chromium~~ (done — `qast --browser URL`)
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
 - **Overlay/watermark** — add a visible overlay (aka watermark) to the video stream
 - **Windows support**
@@ -433,15 +461,15 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 
 MIT
 
-## Why I built this
+## Why?
 
-Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were completely undiscoverable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
+Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were intermittantly discoverable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking about how easy it would be to just... (and thus qast was born.) I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking about how how to combine disparate video sources seemlessly, and thus qast was born. I hope others find this tool useful. 
 
-qast is pronounced "cast". The q is for queue — qast can play a queue of varied content back to back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
+qast is pronounced like "cast". The q is for queue — qast can play a queue of varied content back-to-back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
 ## Related projects
 
@@ -450,9 +478,10 @@ qast leans heavily on existing projects.
 - [ffmpeg](https://www.ffmpeg.org/) — transcoding, muxing, screen capture, window capture, placeholder video generation
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — video extraction
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — Chromecast protocol
+- [Playwright](https://playwright.dev/) — headless Chromium (browser) capture
 
 ## See also
-
+- [Mkchromecast](https://github.com/muammar/mkchromecast) — Chromecast CLI utility, casts audio and video files
+- [catt](https://github.com/skorokithakis/catt) — Chromecast CLI utility, casts urls and web pages
 - [go2tv](https://github.com/alexballas/go2tv) — DLNA casting (single files)
-- [catt](https://github.com/skorokithakis/catt) — Chromecast CLI
 - [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) — Configurable/programmable smart information display

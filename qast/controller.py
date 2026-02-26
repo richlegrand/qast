@@ -6,6 +6,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from .log import get_logger
+from .source import parse_source
 
 if TYPE_CHECKING:
     from .pipeline.pipeline import Pipeline
@@ -63,11 +64,11 @@ class Controller:
                         print(f"Invalid index: {idx}")
                 except ValueError:
                     print("Usage: r <index>")
-            elif line.startswith(("http://", "https://")):
-                self._queue.add(line)
-                print(f"Added to queue: {line}")
             else:
-                print("Commands: <URL> add | s=skip | r <N>=remove | q=quit | ?=status")
+                item = parse_source(line)
+                self._queue.add_item(item)
+                label = item.url or item.capture or line
+                print(f"Added to queue: {label}")
 
     def stop(self) -> None:
         self._stop.set()

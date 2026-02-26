@@ -8,8 +8,6 @@ import termios
 import time
 
 from . import config
-from .capture import ScreenSegment, WebcamSegment, _select_window, _find_window_by_title
-from .pipeline.browser import BrowserSegment
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
 from .tty import tty_input
@@ -23,19 +21,22 @@ from .pipeline.segment import SegmentFFmpeg
 from .progress import ProgressBar
 from .queue import PlayQueue
 from .resolve.ytdlp import download_audio, probe_duration, resolve
+from .source import merge_duration_args, parse_source, has_capture_source
 
 log = get_logger("main")
 
 
 def _parse_duration(s: str) -> float:
-    """Parse '30s', '5m', '1h', or bare seconds."""
+    """Parse durations like '30s', '5m', '1h', '1h30m', '5m30s', or bare seconds."""
+    import re
+
     s = s.strip().lower()
-    if s.endswith("s"):
-        return float(s[:-1])
-    if s.endswith("m"):
-        return float(s[:-1]) * 60
-    if s.endswith("h"):
-        return float(s[:-1]) * 3600
+    m = re.fullmatch(r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?", s)
+    if m and m.group(0):
+        h = float(m.group(1) or 0)
+        mins = float(m.group(2) or 0)
+        secs = float(m.group(3) or 0)
+        return h * 3600 + mins * 60 + secs
     return float(s)
 
 
@@ -86,71 +87,7 @@ def main() -> None:
 
         duration = _parse_duration(args.duration) if args.duration else None
 
-        if args.screen or args.window or args.window_title:
-            # Screen/window capture mode — small buffer for low latency
-            pipeline = Pipeline(
-                save_stream=args.save_stream, raw_ts=raw_ts,
-                buffer_max=config.CAPTURE_BUFFER_MAX,
-                buffer_min=config.CAPTURE_BUFFER_MIN,
-                verbose=verbose,
-            )
-            if args.window_title:
-                window_id, win_w, win_h = _find_window_by_title(args.window_title)
-                segment = ScreenSegment(
-                    cursor=not args.no_cursor,
-                    window_id=window_id,
-                    window_size=(win_w, win_h),
-                    duration=duration,
-                )
-            elif args.window:
-                window_id, win_w, win_h = _select_window()
-                segment = ScreenSegment(
-                    cursor=not args.no_cursor,
-                    window_id=window_id,
-                    window_size=(win_w, win_h),
-                    duration=duration,
-                )
-            else:
-                segment = ScreenSegment(cursor=not args.no_cursor, duration=duration)
-            if verbose:
-                print("Starting screen capture...")
-            pipeline.start_capture(segment, title="Screen Capture")
-
-        elif args.webcam:
-            # Webcam capture mode
-            pipeline = Pipeline(
-                save_stream=args.save_stream, raw_ts=raw_ts,
-                buffer_max=config.CAPTURE_BUFFER_MAX,
-                buffer_min=config.CAPTURE_BUFFER_MIN,
-                verbose=verbose,
-            )
-            segment = WebcamSegment(duration=duration)
-            if verbose:
-                print("Starting webcam capture...")
-            pipeline.start_capture(segment, title="Webcam")
-
-        elif args.browser:
-            # Browser capture mode — render URL in headless Chromium
-            pipeline = Pipeline(
-                save_stream=args.save_stream, raw_ts=raw_ts,
-                buffer_max=config.CAPTURE_BUFFER_MAX,
-                buffer_min=config.CAPTURE_BUFFER_MIN,
-                verbose=verbose,
-            )
-            if not args.urls:
-                url = tty_input("Paste URL to render: ").strip()
-                if not url:
-                    print("No URL provided.")
-                    sys.exit(1)
-                args.urls = [url]
-            if len(args.urls) != 1:
-                print("--browser requires exactly one URL.")
-                sys.exit(1)
-            segment = BrowserSegment(args.urls[0], duration=duration)
-            print(f"Rendering {args.urls[0]}")
-            pipeline.start_capture(segment, title=args.urls[0])
-
-        elif args.urls == ["-"]:
+        if args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin
             pipeline = Pipeline(
                 save_stream=args.save_stream, raw_ts=raw_ts,
@@ -164,34 +101,46 @@ def main() -> None:
             pipeline.start_capture(segment, title="Stdin")
 
         else:
-            # URL mode
-            pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
-
-            # Load playlist file if specified
-            urls = list(args.urls)
+            # Source mode — URLs, files, captures, or any mix
+            raw_sources = list(args.urls)
             if args.playlist:
                 if args.playlist == "-":
                     lines = sys.stdin.read().splitlines()
                 else:
                     with open(args.playlist) as f:
                         lines = f.readlines()
-                playlist_urls = [
+                playlist_sources = [
                     l.strip() for l in lines
                     if l.strip() and not l.strip().startswith("#")
                 ]
-                urls = playlist_urls + urls
+                raw_sources = playlist_sources + raw_sources
 
-            if not urls:
+            if not raw_sources:
                 url = tty_input("Paste URL to cast: ").strip()
                 if not url:
                     print("No URL provided.")
                     sys.exit(1)
-                urls = [url]
+                raw_sources = [url]
 
-            if len(urls) == 1:
+            # Merge standalone @duration args (e.g. ["url", "@5m"] → ["url@5m"])
+            raw_sources = merge_duration_args(raw_sources)
+
+            # Parse all sources
+            items = [
+                parse_source(s, global_duration=duration, cursor=not args.no_cursor)
+                for s in raw_sources
+            ]
+            any_capture = has_capture_source(items)
+
+            if len(items) == 1 and not items[0].capture:
                 # Single URL mode — resolve, show placeholder, play
+                item = items[0]
+                effective_duration = item.duration
+
+                pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
+
                 print("Resolving...")
-                resolved = resolve(urls[0], cookies_from_browser=args.cookies_from_browser)
+                resolved = resolve(item.url, cookies_from_browser=args.cookies_from_browser)
 
                 media_duration: float | None = None
                 if resolved:
@@ -209,23 +158,28 @@ def main() -> None:
                     source_urls = resolved.source_urls
                     is_live = resolved.is_live
                     media_duration = resolved.duration
+                    if effective_duration is not None:
+                        media_duration = effective_duration
 
                 else:
-                    if "youtube.com" in urls[0] or "youtu.be" in urls[0]:
+                    if "youtube.com" in item.url or "youtu.be" in item.url:
                         print("  yt-dlp failed to extract video. YouTube may be blocking requests.")
                         print("  Try: qast --cookies-from-browser chrome <url>")
                     elif verbose:
                         print("  yt-dlp failed, passing URL directly to ffmpeg.")
-                    source_urls = [urls[0]]
+                    source_urls = [item.url]
                     is_live = False
-                    if os.path.isfile(urls[0]):
-                        title = os.path.basename(urls[0])
-                        media_duration = probe_duration(urls[0])
+                    if os.path.isfile(item.url):
+                        title = os.path.basename(item.url)
+                        media_duration = probe_duration(item.url)
+                        if effective_duration is not None:
+                            media_duration = effective_duration
                         if verbose and media_duration:
                             mins, secs = divmod(int(media_duration), 60)
                             print(f"  Duration: {mins}m{secs:02d}s (via ffprobe)")
                     else:
                         title = None
+                        media_duration = effective_duration
 
                 if verbose:
                     print("Starting pipeline...")
@@ -235,13 +189,25 @@ def main() -> None:
                                       loop=args.repeat)
 
             else:
-                # Queue mode — multiple URLs
+                # Queue mode — multiple sources or capture sources
                 if args.shuffle:
                     import random
-                    random.shuffle(urls)
+                    random.shuffle(items)
+
+                # Use capture buffer sizes when any item is a capture source
+                if any_capture:
+                    pipeline = Pipeline(
+                        save_stream=args.save_stream, raw_ts=raw_ts,
+                        buffer_max=config.CAPTURE_BUFFER_MAX,
+                        buffer_min=config.CAPTURE_BUFFER_MIN,
+                        verbose=verbose,
+                    )
+                else:
+                    pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
+
                 queue = PlayQueue(loop=args.repeat, cookies_from_browser=args.cookies_from_browser)
-                for u in urls:
-                    queue.add(u)
+                for item in items:
+                    queue.add_item(item)
                 queue.close()
 
                 # Eagerly resolve the first item so the user sees progress
@@ -249,14 +215,16 @@ def main() -> None:
                 queue.resolve_next()
 
                 if verbose:
-                    print(f"Starting pipeline with {len(urls)} items...")
+                    print(f"Starting pipeline with {len(items)} items...")
                 pipeline.start_queue(queue, show_placeholder=not args.no_placeholder)
 
                 # Start interactive controller for queue management
                 controller = Controller(pipeline, queue)
                 controller.start()
 
-        is_capture = args.screen or args.window or args.window_title or args.webcam or args.browser or args.urls == ["-"]
+        is_capture = args.urls == ["-"]
+        if queue:
+            is_capture = is_capture or queue.has_capture_items
         min_frames = int(config.VIDEO_GOP) + 1 if is_capture else 0
         if not pipeline.wait_ready(min_frames=min_frames):
             print("Failed to buffer enough data. Exiting.")
@@ -277,7 +245,7 @@ def main() -> None:
 
         print(f"Streaming to {device.name}")
         if controller:
-            print("Commands: <URL> add | s=skip | q=quit | ?=status\n")
+            print("Commands: <source[@duration]> add | s=skip | q=quit | ?=status\n")
 
         # Start progress bar (non-verbose mode only)
         if not verbose:

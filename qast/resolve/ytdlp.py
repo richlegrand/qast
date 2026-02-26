@@ -38,6 +38,7 @@ class ResolvedURL:
     capture: str | None = None      # "screen" | "window" | "webcam" for capture items
     window_title: str | None = None # for capture="window"
     show_placeholder: bool = True   # per-item placeholder toggle
+    cursor: bool = True             # show cursor in screen/window capture
     _temp_files: list[str] = field(default_factory=list, repr=False)
 
     def cleanup(self) -> None:
