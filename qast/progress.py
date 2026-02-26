@@ -81,16 +81,19 @@ class ProgressBar:
             cols = 80
 
         duration = self._pipeline.current_duration
+        elapsed = self._pipeline.elapsed
 
-        # Build duration string
+        # Build time string: elapsed / duration or just elapsed
         if duration and duration > 0:
-            duration_str = f"({_fmt_time(duration)})"
+            time_str = f"({_fmt_time(elapsed)} / {_fmt_time(duration)})"
+        elif elapsed > 0:
+            time_str = f"({_fmt_time(elapsed)})"
         else:
-            duration_str = ""
+            time_str = ""
 
         # Truncate title if needed
         prefix = "\u25b6 "  # ▶
-        max_title = cols - len(prefix) - len(duration_str) - 2
+        max_title = cols - len(prefix) - len(time_str) - 2
         if max_title < 10:
             max_title = 10
         if len(title) > max_title:
@@ -98,9 +101,9 @@ class ProgressBar:
         else:
             display_title = title
 
-        # Line 1: title + duration
-        if duration_str:
-            line1 = f"{prefix}{display_title}  {duration_str}"
+        # Line 1: title + time
+        if time_str:
+            line1 = f"{prefix}{display_title}  {time_str}"
         else:
             line1 = f"{prefix}{display_title}"
 

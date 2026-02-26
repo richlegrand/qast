@@ -256,7 +256,9 @@ def main() -> None:
                 controller = Controller(pipeline, queue)
                 controller.start()
 
-        if not pipeline.wait_ready():
+        is_capture = args.screen or args.window or args.window_title or args.webcam or args.browser or args.urls == ["-"]
+        min_frames = int(config.VIDEO_GOP) + 1 if is_capture else 0
+        if not pipeline.wait_ready(min_frames=min_frames):
             print("Failed to buffer enough data. Exiting.")
             sys.exit(1)
 

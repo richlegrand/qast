@@ -8,6 +8,7 @@ qast "https://dropbox.com/abc123/video.mp4"   # Cast video located somewhere on 
 qast "https://youtube.com/watch?v=..."        # Cast YouTube video
 qast --screen                                 # Cast your computer desktop
 qast --window                                 # Cast a window on your desktop
+qast --browser "https://grafana.example.com"  # Cast a webpage (via headless Chromium)
 qast --webcam                                 # Cast your webcam
 cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
@@ -48,6 +49,7 @@ sudo apt install ffmpeg
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) (strongly recommended)
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — for Chromecast/Google TV support
+- [Playwright](https://playwright.dev/python/) — for `--browser` mode (`pip install playwright && playwright install chromium`)
 - xdotool — for `--window` mode on Linux (`apt install xdotool`)
 
 ## Quick start
@@ -116,13 +118,22 @@ qast --window --window-title Grafana  # by title
 
 Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
 
+### A webpage
+
+```bash
+qast --browser "https://grafana.example.com/dashboard"   # render any URL
+qast --browser "https://example.com" --duration 5m       # stop after 5 minutes
+```
+
+Renders a URL in headless Chromium and casts the result to your TV. Great for dashboards, status pages, or any content that's best viewed as a live webpage rather than a video. Requires [Playwright](https://playwright.dev/python/) (`pip install playwright && playwright install chromium`).
+
 ### Your webcam
 
 ```bash
 qast --webcam              # default camera
 ```
 
-Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below. 
+Note, Chromecast works best for live streaming. See [Live streaming](#live-streaming) below.
 
 ### Piped data
 
@@ -266,6 +277,7 @@ Sources:
   --screen                  Capture primary screen
   --window                  Capture window (click to select)
   --window-title TITLE      Select window by title (use with --window)
+  --browser                 Render a URL in headless Chromium and cast
   --webcam                  Capture default webcam
   -                         Read from stdin
 
@@ -330,6 +342,7 @@ q.add("https://youtube.com/watch?v=VIDEO2")
 q.add("~/Videos/workout.mp4", placeholder=False)
 q.add_screen(duration=30)
 q.add_window("Grafana", duration=60)
+q.add_browser("https://grafana.example.com/dashboard", duration=60)
 q.add_webcam(duration=120)
 
 q.play()                              # starts casting (non-blocking)
@@ -382,6 +395,7 @@ while True:
 - **Movie marathon** — queue up the LOTR trilogy, watch without having to lift a finger. Put it on repeat: LOTR channel
 - **Curated kids content** — queue up YouTube Kids, PBS, etc.
 - **Digital signage** — Show "live" data, sales figures, number of users, household/company news, etc.
+- **MagicMirror cast** — cast your [MagicMirror]https://github.com/MagicMirrorOrg/MagicMirror to any screen 
 - **Etc** — pipe frames from your custom video source, e.g. art, AI generated content, etc.
 
 ## FAQ
@@ -411,7 +425,7 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 - **Multi-device casting** — cast the same stream to multiple TVs simultaneously (`qast -d "Living Room" -d "Kitchen" video.mp4`)
 - **Subtitles** — burn subtitles into the video stream via ffmpeg
 - **Pause/resume** — pause and resume playback on the TV
-- **Webpage rendering** — cast any webpage to TV via headless Chromium, with auto-refresh for dashboards (`pip install qast[web]`)
+- ~~**Webpage rendering** — cast any webpage to TV via headless Chromium~~ (done — `qast --browser URL`)
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
 - **Overlay/watermark** — add a visible overlay (aka watermark) to the video stream
 - **Windows support**
@@ -443,4 +457,4 @@ qast leans heavily on existing projects.
 
 - [go2tv](https://github.com/alexballas/go2tv) — DLNA casting (single files)
 - [catt](https://github.com/skorokithakis/catt) — Chromecast CLI
-
+- [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) — Configurable/programmable smart information display

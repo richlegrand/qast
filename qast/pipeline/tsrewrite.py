@@ -45,6 +45,7 @@ class TSRewriter:
         self._video_correction: int = 0  # additional offset for video PTS/DTS only
         self._max_pts: int = 0           # highest video PTS seen (includes correction)
         self._audio_frame_count: int = 0 # audio PES headers seen in current segment
+        self._video_frame_count: int = 0 # video PES headers seen in current segment
         self._buf = bytearray()          # partial-packet buffer
         self._cc: dict[int, int] = {}    # PID -> last continuity counter
 
@@ -59,6 +60,7 @@ class TSRewriter:
         self._video_correction = video_correction
         self._max_pts = 0
         self._audio_frame_count = 0
+        self._video_frame_count = 0
         log.debug("TS rewriter: offset=%d, video_correction=%d (%.3fms)",
                   ticks, video_correction, video_correction / 90)
 
@@ -70,12 +72,24 @@ class TSRewriter:
     def audio_frame_count(self) -> int:
         return self._audio_frame_count
 
-    def process(self, data: bytes) -> bytes:
-        """Rewrite all packets in *data* and return the modified bytes."""
+    @property
+    def video_frame_count(self) -> int:
+        return self._video_frame_count
+
+    def process(self, data: bytes, max_video_frames: int = 0) -> bytes:
+        """Rewrite all packets in *data* and return the modified bytes.
+
+        When *max_video_frames* > 0, stop processing after the video frame
+        count (within the current segment) reaches that limit.  Unprocessed
+        data remains in the internal buffer for later calls or flush().
+        """
         self._buf.extend(data)
         out = bytearray()
 
         while len(self._buf) >= _PKT:
+            if max_video_frames and self._video_frame_count >= max_video_frames:
+                break
+
             # Find sync byte
             if self._buf[0] != _SYNC:
                 idx = self._buf.find(_SYNC)
@@ -140,6 +154,7 @@ class TSRewriter:
                 return
             pts = _read_ts(pkt, ts_pos)
             if is_video:
+                self._video_frame_count += 1
                 new_pts = (pts + self._offset + self._video_correction) & 0x1_FFFF_FFFF
                 # Track uncorrected PTS for offset computation — avoids
                 # feedback loop where correction inflates max_pts

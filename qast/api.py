@@ -37,6 +37,7 @@ class Status:
     state: str  # "playing" | "stopped" | "idle"
     now_playing: str | None
     duration: float | None
+    position: float | None  # elapsed content time in seconds
     queue: list[str]
 
 
@@ -223,7 +224,8 @@ class Qast:
         )
         self._pipeline.start_queue(self._queue, show_placeholder=show_placeholder)
 
-        if not self._pipeline.wait_ready():
+        min_frames = int(config.VIDEO_GOP) + 1 if has_capture else 0
+        if not self._pipeline.wait_ready(min_frames=min_frames):
             self._pipeline.shutdown()
             raise RuntimeError("Failed to buffer enough data")
 
@@ -262,6 +264,7 @@ class Qast:
                 state="idle",
                 now_playing=None,
                 duration=None,
+                position=None,
                 queue=queue_items,
             )
 
@@ -269,6 +272,7 @@ class Qast:
             state="playing",
             now_playing=self._pipeline.now_playing,
             duration=self._pipeline.current_duration,
+            position=self._pipeline.elapsed,
             queue=queue_items,
         )
 

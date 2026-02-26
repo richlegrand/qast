@@ -13,6 +13,7 @@ PTS offsets use exact 90 kHz integer ticks — no float-based computation.
 from __future__ import annotations
 
 import threading
+import time
 from typing import TYPE_CHECKING
 
 from .. import config
@@ -33,6 +34,8 @@ log = get_logger("pipeline")
 # Placeholder durations
 LOADING_DURATION = 10.0
 UP_NEXT_DURATION = 5.0
+_MIN_PLACEHOLDER_SECS = 2.0  # minimum content-time to show a placeholder
+_MIN_PLACEHOLDER_FRAMES = int(_MIN_PLACEHOLDER_SECS * int(config.VIDEO_FPS))
 
 # One video frame in 90 kHz ticks at configured fps
 _TICKS_PER_FRAME = 90_000 // int(config.VIDEO_FPS)
@@ -79,9 +82,71 @@ class Pipeline:
         self._skip_event = threading.Event()
         self._shutdown_event = threading.Event()
         self._total_audio_samples: int = 0  # cumulative audio samples across all segments
+        self._total_video_frames: int = 0   # cumulative video frames across all segments
+        self._min_frames: int = 0           # frame threshold for wait_ready
+        self._frames_ready = threading.Event()
         # Public state for progress bar / status API
         self.now_playing: str | None = None
         self.current_duration: float | None = None
+        self._item_video_frames: int = 0    # video frames for current item (resets per item)
+
+    # ── placeholder (shared by all bridge methods) ────────────────
+
+    def _show_placeholder(self, text: str, segment, sink) -> bytes | None:
+        """Show a placeholder while *segment* initializes concurrently.
+
+        Starts *segment*, displays *text* for max(_MIN_PLACEHOLDER_SECS of
+        content time, time until segment produces its first data).  Uses
+        per-TS-packet frame counting for exact content-time control —
+        placeholders encode far faster than realtime.
+
+        Returns the first chunk read from the segment so the caller can
+        continue with ``_pump_segment(segment, sink, first_chunk=...)``.
+        """
+        segment.start()
+
+        first_chunk: list[bytes | None] = [None]
+        data_ready = threading.Event()
+
+        def _read_first():
+            first_chunk[0] = segment.stdout.read(config.PIPE_CHUNK)
+            data_ready.set()
+
+        reader = threading.Thread(target=_read_first, daemon=True)
+        reader.start()
+
+        ph = PlaceholderSegment(text=text, duration=LOADING_DURATION)
+        ph.start()
+
+        # Pump exactly _MIN_PLACEHOLDER_FRAMES, then check if the real
+        # segment is ready.  If not, extend one GOP at a time.
+        self._pump_segment(ph, sink, max_video_frames=_MIN_PLACEHOLDER_FRAMES)
+        while not data_ready.is_set():
+            if self._shutdown_event.is_set():
+                ph.kill()
+                segment.kill()
+                raise _PipelineShutdown
+            next_limit = self._rewriter.video_frame_count + int(config.VIDEO_GOP)
+            log.info("Segment not ready, extending placeholder to %d frames",
+                     next_limit)
+            self._pump_segment(ph, sink, max_video_frames=next_limit)
+
+        ph.kill()
+        # Discard leftover placeholder packets before changing offset —
+        # otherwise they get rewritten with the next segment's offset,
+        # producing bogus PTS that corrupt the master muxer's timing.
+        self._rewriter.flush()
+        ph_frames = self._rewriter.video_frame_count
+        log.info("Placeholder done: %d frames (%.1fs content)",
+                 ph_frames, ph_frames / int(config.VIDEO_FPS))
+        self._advance_offset()
+        # Reset per-item counter so elapsed only reflects real content
+        self._item_video_frames = 0
+
+        reader.join(timeout=2)
+        return first_chunk[0]
+
+    # ── single-video mode ─────────────────────────────────────────
 
     def start_single(
         self,
@@ -105,7 +170,7 @@ class Pipeline:
 
         self._bridge_thread = threading.Thread(
             target=self._bridge_single,
-            args=(source_urls, is_live, title, duration, loading_duration, show_placeholder, loop),
+            args=(source_urls, is_live, title, duration, show_placeholder, loop),
             daemon=True,
         )
         self._bridge_thread.start()
@@ -117,7 +182,6 @@ class Pipeline:
         is_live: bool,
         title: str | None,
         duration: float | None = None,
-        loading_duration: float = LOADING_DURATION,
         show_placeholder: bool = True,
         loop: bool = False,
     ) -> None:
@@ -128,26 +192,23 @@ class Pipeline:
             return
 
         self._rewriter.set_offset(0)
+        first = True
+        consecutive_failures = 0
         try:
-            # Show loading placeholder if we have a title
-            if show_placeholder and title:
-                ph = PlaceholderSegment(
-                    text=f"Loading: {title}",
-                    duration=loading_duration,
-                )
-                self._run_segment(ph, sink)
-                self._advance_offset()
-
-            # Loop the segment until shutdown/Ctrl+C
-            loop_count = 1
-            consecutive_failures = 0
-            self.now_playing = title
-            self.current_duration = duration
-
             while not self._shutdown_event.is_set():
-                log.info("Playing (loop %d)", loop_count)
+                log.info("Playing (loop %d)", 1 if first else 2)
                 seg = SegmentFFmpeg(source_urls, is_live=is_live)
-                self._run_segment(seg, sink)
+
+                self.now_playing = title
+                self.current_duration = duration
+                self._item_video_frames = 0
+
+                if first and show_placeholder and title:
+                    fc = self._show_placeholder(f"Loading: {title}", seg, sink)
+                    self._pump_segment(seg, sink, first_chunk=fc)
+                    first = False
+                else:
+                    self._run_segment(seg, sink)
 
                 if self._rewriter.max_pts > 0:
                     self._advance_offset()
@@ -162,7 +223,6 @@ class Pipeline:
                     break
 
                 self._close_save()  # only save first pass
-                loop_count += 1
         except _PipelineShutdown:
             log.debug("Bridge: shutdown requested")
         finally:
@@ -175,6 +235,8 @@ class Pipeline:
                 self.ring_buffer.wait_drained(timeout=300)
             log.debug("Bridge single finished")
             self._shutdown_event.set()
+
+    # ── queue mode ────────────────────────────────────────────────
 
     def start_queue(self, queue: PlayQueue, show_placeholder: bool = True) -> None:
         """Start pipeline consuming items from a queue."""
@@ -216,35 +278,8 @@ class Pipeline:
                 # Start resolving the next item while this one plays
                 queue.start_prefetch()
 
-                # Per-item placeholder (falls back to pipeline-level default)
-                item_show_placeholder = show_placeholder and item.show_placeholder
-                if item_show_placeholder:
-                    if first:
-                        placeholder_text = f"Loading: {item.title}"
-                        ph_duration = LOADING_DURATION
-                        first = False
-                    else:
-                        placeholder_text = f"Up next: {item.title}"
-                        ph_duration = UP_NEXT_DURATION
-
-                    ph = PlaceholderSegment(
-                        text=placeholder_text,
-                        duration=ph_duration,
-                    )
-                    self._run_segment(ph, sink)
-                    self._advance_offset()
-                else:
-                    first = False
-
-                # Reset skip event for this item
-                self._skip_event.clear()
-
-                # Update state for progress bar / status API
-                self.now_playing = item.title
-                self.current_duration = item.duration
-    
-
-                # Create segment based on item type
+                # Create the real segment early so placeholder and segment
+                # can run concurrently.
                 if item.capture:
                     seg = self._create_capture_segment(item)
                 else:
@@ -253,9 +288,32 @@ class Pipeline:
                         is_live=item.is_live,
                         duration=item.duration,
                     )
-                self._current_segment = seg
-                self._run_segment(seg, sink)
-                self._current_segment = None
+
+                # Reset skip event for this item
+                self._skip_event.clear()
+
+                # Update state for progress bar / status API
+                self.now_playing = item.title
+                self.current_duration = item.duration
+                self._item_video_frames = 0
+
+                # Per-item placeholder (falls back to pipeline-level default)
+                item_show_placeholder = show_placeholder and item.show_placeholder
+                if item_show_placeholder:
+                    if first:
+                        ph_text = f"Loading: {item.title}"
+                        first = False
+                    else:
+                        ph_text = f"Up next: {item.title}"
+                    fc = self._show_placeholder(ph_text, seg, sink)
+                    self._current_segment = seg
+                    self._pump_segment(seg, sink, first_chunk=fc)
+                    self._current_segment = None
+                else:
+                    first = False
+                    self._current_segment = seg
+                    self._run_segment(seg, sink)
+                    self._current_segment = None
 
                 if self._rewriter.max_pts > 0:
                     self._advance_offset()
@@ -292,6 +350,8 @@ class Pipeline:
             log.debug("Bridge queue finished")
             self._shutdown_event.set()
 
+    # ── capture mode ──────────────────────────────────────────────
+
     def start_capture(self, segment, title: str | None = None, show_placeholder: bool = True) -> None:
         """Start pipeline for a live capture source (runs until killed)."""
         if self.master:
@@ -318,18 +378,15 @@ class Pipeline:
 
         self.now_playing = title or "Capture"
         self.current_duration = getattr(segment, 'duration', None)
+        self._item_video_frames = 0
 
         self._rewriter.set_offset(0)
         try:
             if show_placeholder and title:
-                ph = PlaceholderSegment(
-                    text=f"Loading: {title}",
-                    duration=LOADING_DURATION,
-                )
-                self._run_segment(ph, sink)
-                self._advance_offset()
-
-            self._run_segment(segment, sink)
+                fc = self._show_placeholder(f"Loading: {title}", segment, sink)
+                self._pump_segment(segment, sink, first_chunk=fc)
+            else:
+                self._run_segment(segment, sink)
         except _PipelineShutdown:
             log.debug("Bridge capture: shutdown requested")
         finally:
@@ -361,6 +418,8 @@ class Pipeline:
             return BrowserSegment(item.url, duration=item.duration)
         else:
             raise ValueError(f"Unknown capture type: {item.capture}")
+
+    # ── PTS / offset management ───────────────────────────────────
 
     def _advance_offset(self) -> None:
         """Advance the rewriter offset based on the measured max PTS.
@@ -403,6 +462,8 @@ class Pipeline:
 
         self._rewriter.set_offset(new_offset, video_correction=video_correction)
 
+    # ── segment I/O ───────────────────────────────────────────────
+
     def _get_sink(self):
         """Return the write target: master stdin (fMP4 path) or ring buffer (raw TS)."""
         if self.master:
@@ -425,8 +486,50 @@ class Pipeline:
             raise _PipelineShutdown
 
         segment.start()
+        self._pump_segment(segment, sink)
+
+    def _process_chunk(self, chunk: bytes, sink,
+                       max_video_frames: int = 0) -> None:
+        """Rewrite a chunk, write to sink, and update the video frame count."""
+        prev_vf = self._rewriter.video_frame_count
+        rewritten = self._rewriter.process(chunk,
+                                           max_video_frames=max_video_frames)
+        delta = self._rewriter.video_frame_count - prev_vf
+        self._total_video_frames += delta
+        self._item_video_frames += delta
+        if self._min_frames and not self._frames_ready.is_set():
+            if self._total_video_frames >= self._min_frames:
+                self._frames_ready.set()
+        if rewritten:
+            sink.write(rewritten)
+            try:
+                sf = self._save_file
+                if sf:
+                    sf.write(rewritten)
+            except Exception:
+                pass
+
+    def _pump_segment(self, segment, sink, first_chunk: bytes | None = None,
+                      max_video_frames: int = 0) -> None:
+        """Read loop: pump TS data from a started segment through the rewriter to the sink.
+
+        Unlike _run_segment, this does not call segment.start() — the caller
+        must have started the segment already.  If *first_chunk* is provided it
+        is processed before reading further from stdout.
+
+        When *max_video_frames* > 0, stop after exactly that many video frames
+        have been processed (per-packet granularity via the TS rewriter).
+        The segment is killed and remaining data stays in the rewriter buffer.
+        """
         try:
+            if first_chunk:
+                self._process_chunk(first_chunk, sink,
+                                    max_video_frames=max_video_frames)
+
             while True:
+                if max_video_frames and self._rewriter.video_frame_count >= max_video_frames:
+                    segment.kill()
+                    return
                 if self._shutdown_event.is_set():
                     segment.kill()
                     raise _PipelineShutdown
@@ -438,15 +541,8 @@ class Pipeline:
                 chunk = segment.stdout.read(config.PIPE_CHUNK)
                 if not chunk:
                     break
-                rewritten = self._rewriter.process(chunk)
-                if rewritten:
-                    sink.write(rewritten)
-                    try:
-                        sf = self._save_file
-                        if sf:
-                            sf.write(rewritten)
-                    except Exception:
-                        pass
+                self._process_chunk(chunk, sink,
+                                    max_video_frames=max_video_frames)
 
             # Discard any partial packet (incomplete 188-byte TS packets)
             self._rewriter.flush()
@@ -456,6 +552,8 @@ class Pipeline:
         except (BrokenPipeError, OSError):
             log.debug("Segment bridge: pipe broken")
             raise _PipelineShutdown
+
+    # ── file save ─────────────────────────────────────────────────
 
     def _close_save(self) -> None:
         """Close save file(s) — called after first pass or on shutdown."""
@@ -467,6 +565,8 @@ class Pipeline:
             self._save_file = None
         if self.master:
             self.master.close_save_file()
+
+    # ── monitoring ────────────────────────────────────────────────
 
     def _start_monitor(self) -> None:
         if not self._verbose:
@@ -487,19 +587,48 @@ class Pipeline:
             self._shutdown_event.wait(config.BUFFER_MONITOR_INTERVAL)
         print()  # clear the \r line
 
+    # ── public API ────────────────────────────────────────────────
+
     def skip_current(self) -> None:
         """Skip the currently playing segment."""
         self._skip_event.set()
 
-    def wait_ready(self, timeout: float = config.BUFFER_FILL_TIMEOUT) -> bool:
-        """Block until ring buffer has enough data to start casting."""
-        log.info("Waiting for buffer to fill (%d bytes min)...", self.ring_buffer.min_fill)
-        ok = self.ring_buffer.wait_min_fill(timeout)
-        if ok:
-            log.info("Buffer ready")
+    def wait_ready(self, timeout: float = config.BUFFER_FILL_TIMEOUT,
+                   min_frames: int = 0) -> bool:
+        """Block until enough data is available to start casting.
+
+        When *min_frames* > 0, waits for that many video frames to have been
+        processed through the rewriter (frame count gives real time:
+        frames / fps = seconds, regardless of compression ratio).
+
+        When *min_frames* is 0, falls back to the byte-based ring buffer
+        threshold.
+        """
+        if min_frames:
+            self._min_frames = min_frames
+            log.info("Waiting for %d video frames (%.1fs)...",
+                     min_frames, min_frames / int(config.VIDEO_FPS))
+            ok = self._frames_ready.wait(timeout=timeout)
+            if ok:
+                log.info("Frames ready (%d total)", self._total_video_frames)
+            else:
+                log.warning("Frame wait timed out (%d/%d frames)",
+                            self._total_video_frames, min_frames)
+            return ok
         else:
-            log.warning("Buffer fill timed out")
-        return ok
+            log.info("Waiting for buffer to fill (%d bytes min)...",
+                     self.ring_buffer.min_fill)
+            ok = self.ring_buffer.wait_min_fill(timeout)
+            if ok:
+                log.info("Buffer ready")
+            else:
+                log.warning("Buffer fill timed out")
+            return ok
+
+    @property
+    def elapsed(self) -> float:
+        """Elapsed content time for the current item, in seconds."""
+        return self._item_video_frames / int(config.VIDEO_FPS)
 
     @property
     def serve_url(self) -> str:
