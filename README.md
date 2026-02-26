@@ -246,9 +246,7 @@ qast -d 0 video.mp4                 # by index
 
 ## Live streaming
 
-Roku and DLNA TVs tend to have larger starup times and large buffers, which leads to larger latencies. If you're viewing your webcam or computer desktop, you might see a 10 second lag from when you move your mouse and it showing up on the TV (for example). TVs that support Chromecast tend to have only a few seconds of latency. 
-
-For this reason Chromecast is better for live streaming if latency is important. 
+All TVs I've tested want to buffer a few seconds of data before starting to render frames, which leads to latencies. If you're viewing your webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on the TV (for example).
 
 ## How it works
  
