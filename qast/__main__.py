@@ -9,6 +9,7 @@ import time
 
 from . import config
 from .capture import ScreenSegment, WebcamSegment, _select_window, _find_window_by_title
+from .pipeline.browser import BrowserSegment
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
 from .tty import tty_input
@@ -127,6 +128,27 @@ def main() -> None:
             if verbose:
                 print("Starting webcam capture...")
             pipeline.start_capture(segment, title="Webcam")
+
+        elif args.browser:
+            # Browser capture mode — render URL in headless Chromium
+            pipeline = Pipeline(
+                save_stream=args.save_stream, raw_ts=raw_ts,
+                buffer_max=config.CAPTURE_BUFFER_MAX,
+                buffer_min=config.CAPTURE_BUFFER_MIN,
+                verbose=verbose,
+            )
+            if not args.urls:
+                url = tty_input("Paste URL to render: ").strip()
+                if not url:
+                    print("No URL provided.")
+                    sys.exit(1)
+                args.urls = [url]
+            if len(args.urls) != 1:
+                print("--browser requires exactly one URL.")
+                sys.exit(1)
+            segment = BrowserSegment(args.urls[0], duration=duration)
+            print(f"Rendering {args.urls[0]}")
+            pipeline.start_capture(segment, title=args.urls[0])
 
         elif args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin

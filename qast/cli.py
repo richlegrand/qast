@@ -23,6 +23,7 @@ class Args:
     window_title: str | None
     duration: str | None
     webcam: bool
+    browser: bool
     playlist: str | None
 
 
@@ -88,6 +89,12 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="Capture webcam and cast to device",
     )
     group.add_argument(
+        "--browser",
+        action="store_true",
+        default=False,
+        help="Render a URL in headless Chromium and cast the result",
+    )
+    group.add_argument(
         "--duration",
         metavar="TIME",
         help="Limit capture duration (e.g. 30s, 5m, 1h)",
@@ -140,5 +147,6 @@ def parse_args(argv: list[str] | None = None) -> Args:
         window_title=ns.window_title,
         duration=ns.duration,
         webcam=ns.webcam,
+        browser=ns.browser,
         playlist=ns.playlist,
     )

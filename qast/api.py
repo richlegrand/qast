@@ -191,6 +191,15 @@ class Qast:
             show_placeholder=placeholder, title="Webcam",
         ))
 
+    def add_browser(
+        self, url: str, duration: float | None = None, placeholder: bool = True,
+    ) -> None:
+        """Add browser capture (headless Chromium rendering a URL) to the queue."""
+        self._ensure_queue().add_item(QueueItem(
+            capture="browser", url=url, duration=duration,
+            show_placeholder=placeholder, title=url,
+        ))
+
     def play(self, repeat: bool = False, show_placeholder: bool = True) -> None:
         """Start playback. Non-blocking — returns immediately."""
         if self._playing:

@@ -292,7 +292,7 @@ class Pipeline:
             log.debug("Bridge queue finished")
             self._shutdown_event.set()
 
-    def start_capture(self, segment, title: str | None = None) -> None:
+    def start_capture(self, segment, title: str | None = None, show_placeholder: bool = True) -> None:
         """Start pipeline for a live capture source (runs until killed)."""
         if self.master:
             self.master.start(save_path=self._save_stream)
@@ -304,13 +304,13 @@ class Pipeline:
         self.server.start()
 
         self._bridge_thread = threading.Thread(
-            target=self._bridge_capture, args=(segment, title), daemon=True,
+            target=self._bridge_capture, args=(segment, title, show_placeholder), daemon=True,
         )
         self._bridge_thread.start()
         self._start_monitor()
 
-    def _bridge_capture(self, segment, title: str | None = None) -> None:
-        """Bridge for capture mode: single segment, no loop."""
+    def _bridge_capture(self, segment, title: str | None = None, show_placeholder: bool = True) -> None:
+        """Bridge for capture mode: optional placeholder then capture segment."""
         sink = self._get_sink()
         if sink is None:
             log.error("Bridge capture: no write target")
@@ -321,6 +321,14 @@ class Pipeline:
 
         self._rewriter.set_offset(0)
         try:
+            if show_placeholder and title:
+                ph = PlaceholderSegment(
+                    text=f"Loading: {title}",
+                    duration=LOADING_DURATION,
+                )
+                self._run_segment(ph, sink)
+                self._advance_offset()
+
             self._run_segment(segment, sink)
         except _PipelineShutdown:
             log.debug("Bridge capture: shutdown requested")
@@ -348,6 +356,9 @@ class Pipeline:
             )
         elif item.capture == "webcam":
             return WebcamSegment(duration=item.duration)
+        elif item.capture == "browser":
+            from .browser import BrowserSegment
+            return BrowserSegment(item.url, duration=item.duration)
         else:
             raise ValueError(f"Unknown capture type: {item.capture}")
 
