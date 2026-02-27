@@ -4,11 +4,11 @@ qast casts anything to any TV from the command line.
 
 ```bash
 qast video.mov                                # Cast local file
-qast "https://dropbox.com/abc123/video.mp4"   # Cast video located somewhere on web
+qast https://dropbox.com/abc123/video.mp4   # Cast video located somewhere on web
 qast "https://youtube.com/watch?v=..."        # Cast YouTube video
 qast screen                                   # Cast your computer desktop
 qast window                                   # Cast a window on your desktop (select via mouseclick)
-qast "browser:https://grafana.example.com"    # Cast a webpage (via headless Chromium)
+qast browser:https://grafana.example.com    # Cast a webpage (via headless Chromium)
 qast webcam                                   # Cast your webcam
 cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
@@ -113,15 +113,15 @@ Works even if your TV doesn't support Miracast or AirPlay.
 
 ```bash
 qast window                    # click to select
-qast "window:Grafana"          # by title
-qast "window:Grafana"@1m       # by title, 1 minute
+qast window:Grafana          # by title
+qast window:Grafana@1m       # by title, 1 minute
 ```
 
 ### A webpage
 
 ```bash
-qast "browser:https://grafana.example.com/dashboard"       # render any URL
-qast "browser:https://example.com"@5m                      # stop after 5 minutes
+qast browser:https://grafana.example.com/dashboard       # render any URL
+qast browser:https://example.com@5m                      # stop after 5 minutes
 ```
 
 Renders a URL in headless Chromium and casts the result to your TV. Great for dashboards, status pages, or any content that's best viewed as a live webpage rather than a video. Requires [Playwright](https://playwright.dev/python/) (`pip install playwright && playwright install chromium`).
@@ -247,9 +247,9 @@ qast auto-discovers devices on your network. If multiple are found, it presents 
 ```
 $ qast video.mp4
 Scanning for devices...
-  [0] Living Room TV (chromecast)
-  [1] Bedroom Samsung (dlna)
-  [2] Kitchen Roku (roku)
+  [0] Living Room TV (Chromecast)
+  [1] Bedroom Samsung (DLNA)
+  [2] Kitchen Roku (Roku)
 Select device:
 ```
 
@@ -397,9 +397,9 @@ while True:
 - **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
 - **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
 - **Movie marathon** — queue up the LOTR trilogy
-- **Curated kids content** — queue up appropriate content -- YouTube Kids, PBS, etc.
+- **Curated kids content** — queue up kid appropriate content -- YouTube Kids, PBS, etc.
 - **Digital signage** — Show "live" data, sales figures, number of users, company news, etc.
-- **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror), no Raspberry Pi needed
+- **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) screen wherever
 - **Etc** — pipe frames from your custom video source -- art, AI generated content, etc.
 
 ## FAQ
@@ -463,9 +463,9 @@ Our office has TVs of various types. During the Winter Olympics I had mixed resu
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- how could you combine disparate video sources seemlessly? It would be nice if it could cast to almost all TVs... And thus qast was born. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- could you make a streamer that's both video source and TV agnostic? Such a streamer could combine disparate sources back-to-back... and thus qast was born. I hope others find this tool useful. 
 
-qast is pronounced "cast". The q is for queue — qast can play a queue of varied content back-to-back as one continuous stream. (And everyone knows replacing a c with q makes anything sound cooler.) 
+qast is pronounced "cast". The q is for queue -- play a queue of varied content back-to-back. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
 ## Related projects
 
