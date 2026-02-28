@@ -57,6 +57,8 @@ class Pipeline:
         buffer_max: int | None = None,
         buffer_min: int | None = None,
         verbose: bool = False,
+        preroll: float = 0,
+        placeholder_time: float = 0,
     ) -> None:
         self._raw_ts = raw_ts
         self._verbose = verbose
@@ -73,6 +75,8 @@ class Pipeline:
             disconnect_event=self._disconnect_event,
             fake_content_length=raw_ts,
         )
+        self._preroll = preroll
+        self._placeholder_time = placeholder_time
         self._rewriter = TSRewriter()
         self._save_stream: str | None = save_stream
         self._save_file = None  # IO[bytes] | None — for raw TS save
@@ -90,9 +94,37 @@ class Pipeline:
         self.current_duration: float | None = None
         self._item_video_frames: int = 0    # video frames for current item (resets per item)
 
+    # ── buffer lead throttle ────────────────────────────────────
+
+    def _throttle(self) -> None:
+        """Block until buffer lead drops below maximum."""
+        frt = self.ring_buffer.first_read_time
+        if frt is None:
+            return  # TV hasn't connected yet — no throttle
+        fps = int(config.VIDEO_FPS)
+        while True:
+            content_time = self._total_video_frames / fps
+            wall_time = time.monotonic() - frt
+            lead = content_time - wall_time
+            if lead <= config.MAX_BUFFER_LEAD:
+                return
+            if self._shutdown_event.is_set() or self._skip_event.is_set():
+                return
+            time.sleep(0.1)
+
+    @property
+    def buffer_lead(self) -> float | None:
+        """Seconds of content ahead of TV playback, or None if TV hasn't connected."""
+        frt = self.ring_buffer.first_read_time
+        if frt is None:
+            return None
+        content_time = self._total_video_frames / int(config.VIDEO_FPS)
+        wall_time = time.monotonic() - frt
+        return content_time - wall_time
+
     # ── placeholder (shared by all bridge methods) ────────────────
 
-    def _show_placeholder(self, text: str, segment, sink) -> bytes | None:
+    def _show_placeholder(self, text: str, segment, sink, loading: bool = False) -> bytes | None:
         """Show a placeholder while *segment* initializes concurrently.
 
         Starts *segment*, displays *text* for max(_MIN_PLACEHOLDER_SECS of
@@ -115,21 +147,36 @@ class Pipeline:
         reader = threading.Thread(target=_read_first, daemon=True)
         reader.start()
 
-        ph = PlaceholderSegment(text=text, duration=LOADING_DURATION)
+        base_min = self._placeholder_time if self._placeholder_time else _MIN_PLACEHOLDER_SECS
+        min_secs = max(self._preroll, base_min) if loading else base_min
+        min_frames = int(min_secs * int(config.VIDEO_FPS))
+        ph_duration = max(min_secs + 2, LOADING_DURATION)
+        ph = PlaceholderSegment(text=text, duration=ph_duration)
         ph.start()
 
-        # Pump exactly _MIN_PLACEHOLDER_FRAMES, then check if the real
-        # segment is ready.  If not, extend one GOP at a time.
-        self._pump_segment(ph, sink, max_video_frames=_MIN_PLACEHOLDER_FRAMES)
+        # Pump exactly min_frames, then check if the real segment is
+        # ready.  If not, extend one GOP at a time.
+        # Placeholder content is not throttled — it should pump fast so we
+        # can check data_ready sooner.  The throttle on real content keeps
+        # the overall lead in check.
+        self._pump_segment(ph, sink, max_video_frames=min_frames, throttle=False)
         while not data_ready.is_set():
             if self._shutdown_event.is_set():
                 ph.kill()
                 segment.kill()
                 raise _PipelineShutdown
+            if data_ready.wait(timeout=0.5):
+                break
+            # Don't extend if we already have enough content buffered ahead
+            lead = self.buffer_lead
+            if lead is not None and lead > config.MAX_BUFFER_LEAD:
+                continue
+            if ph.proc and ph.proc.poll() is not None:
+                continue
             next_limit = self._rewriter.video_frame_count + int(config.VIDEO_GOP)
             log.info("Segment not ready, extending placeholder to %d frames",
                      next_limit)
-            self._pump_segment(ph, sink, max_video_frames=next_limit)
+            self._pump_segment(ph, sink, max_video_frames=next_limit, throttle=False)
 
         ph.kill()
         # Discard leftover placeholder packets before changing offset —
@@ -145,6 +192,72 @@ class Pipeline:
 
         reader.join(timeout=2)
         return first_chunk[0]
+
+    def _next_with_placeholder(self, queue: PlayQueue, sink):
+        """Get the next queue item, pumping a placeholder if it's not ready yet."""
+        from .placeholder import PlaceholderSegment as _PH
+
+        if queue.is_next_ready():
+            return queue.next()
+
+        if not queue.has_more():
+            return queue.next()  # will return None (exhausted) or loop
+
+        # If we have enough buffer lead, the TV has plenty to play —
+        # just block on queue.next() without showing a placeholder.
+        # Use half the max lead as threshold: the resolve typically takes
+        # 3-5s, and we don't want to show a raw URL when the title hasn't
+        # been resolved yet.  _show_placeholder (with the proper title)
+        # will still fire if the lead drops below threshold during resolve.
+        lead = self.buffer_lead
+        if lead is not None and lead >= config.MAX_BUFFER_LEAD / 2:
+            log.info("Buffer lead %.1fs, waiting for next item without placeholder", lead)
+            return queue.next()
+
+        # Slow path: next item still resolving — pump a placeholder while waiting
+        label = queue.peek_next_label()
+        ph_text = f"Up next: {label}" if label else "Up next..."
+        log.info("Next item not ready, showing placeholder: %s", ph_text)
+        result: list = [None]
+        ready = threading.Event()
+
+        def _wait():
+            result[0] = queue.next()
+            ready.set()
+
+        waiter = threading.Thread(target=_wait, daemon=True)
+        waiter.start()
+
+        ph = _PH(text=ph_text, duration=120)
+        ph.start()
+
+        base_min = self._placeholder_time if self._placeholder_time else _MIN_PLACEHOLDER_SECS
+        min_frames = int(base_min * int(config.VIDEO_FPS))
+        self._pump_segment(ph, sink, max_video_frames=min_frames, throttle=False)
+        while not ready.is_set():
+            if self._shutdown_event.is_set():
+                ph.kill()
+                raise _PipelineShutdown
+            if ready.wait(timeout=0.5):
+                break
+            # Don't extend if we already have enough content buffered ahead
+            lead = self.buffer_lead
+            if lead is not None and lead > config.MAX_BUFFER_LEAD:
+                continue
+            if ph.proc and ph.proc.poll() is not None:
+                continue
+            next_limit = self._rewriter.video_frame_count + int(config.VIDEO_GOP)
+            self._pump_segment(ph, sink, max_video_frames=next_limit, throttle=False)
+
+        ph.kill()
+        self._rewriter.flush()
+        ph_frames = self._rewriter.video_frame_count
+        log.info("Buffering placeholder done: %d frames (%.1fs content)",
+                 ph_frames, ph_frames / int(config.VIDEO_FPS))
+        self._advance_offset()
+
+        waiter.join(timeout=2)
+        return result[0]
 
     # ── single-video mode ─────────────────────────────────────────
 
@@ -197,14 +310,16 @@ class Pipeline:
         try:
             while not self._shutdown_event.is_set():
                 log.info("Playing (loop %d)", 1 if first else 2)
-                seg = SegmentFFmpeg(source_urls, is_live=is_live)
+                seg = SegmentFFmpeg(source_urls, is_live=is_live, duration=duration,
+                                    aspect=config.ASPECT)
 
                 self.now_playing = title
                 self.current_duration = duration
                 self._item_video_frames = 0
 
-                if first and show_placeholder and title:
-                    fc = self._show_placeholder(f"Loading: {title}", seg, sink)
+                use_placeholder = (show_placeholder or self._preroll > 0) and title
+                if first and use_placeholder:
+                    fc = self._show_placeholder(f"Loading: {title}", seg, sink, loading=True)
                     self._pump_segment(seg, sink, first_chunk=fc)
                     first = False
                 else:
@@ -270,7 +385,10 @@ class Pipeline:
         self._rewriter.set_offset(0)
         try:
             while not self._shutdown_event.is_set():
-                item = queue.next()
+                if first:
+                    item = queue.next()
+                else:
+                    item = self._next_with_placeholder(queue, sink)
                 if item is None:
                     log.info("Queue exhausted")
                     break
@@ -287,6 +405,7 @@ class Pipeline:
                         item.source_urls,
                         is_live=item.is_live,
                         duration=item.duration,
+                        aspect=config.ASPECT,
                     )
 
                 # Reset skip event for this item
@@ -297,15 +416,20 @@ class Pipeline:
                 self.current_duration = item.duration
                 self._item_video_frames = 0
 
-                # Per-item placeholder (falls back to pipeline-level default)
-                item_show_placeholder = show_placeholder and item.show_placeholder
+                # Per-item placeholder: preroll only forces the loading screen,
+                # not between-segment placeholders.
+                if first:
+                    item_show_placeholder = (show_placeholder and item.show_placeholder) or self._preroll > 0
+                else:
+                    item_show_placeholder = show_placeholder and item.show_placeholder
                 if item_show_placeholder:
+                    is_loading = first
                     if first:
                         ph_text = f"Loading: {item.title}"
                         first = False
                     else:
                         ph_text = f"Up next: {item.title}"
-                    fc = self._show_placeholder(ph_text, seg, sink)
+                    fc = self._show_placeholder(ph_text, seg, sink, loading=is_loading)
                     self._current_segment = seg
                     self._pump_segment(seg, sink, first_chunk=fc)
                     self._current_segment = None
@@ -382,8 +506,8 @@ class Pipeline:
 
         self._rewriter.set_offset(0)
         try:
-            if show_placeholder and title:
-                fc = self._show_placeholder(f"Loading: {title}", segment, sink)
+            if (show_placeholder or self._preroll > 0) and title:
+                fc = self._show_placeholder(f"Loading: {title}", segment, sink, loading=True)
                 self._pump_segment(segment, sink, first_chunk=fc)
             else:
                 self._run_segment(segment, sink)
@@ -515,7 +639,7 @@ class Pipeline:
                 pass
 
     def _pump_segment(self, segment, sink, first_chunk: bytes | None = None,
-                      max_video_frames: int = 0) -> None:
+                      max_video_frames: int = 0, throttle: bool = True) -> None:
         """Read loop: pump TS data from a started segment through the rewriter to the sink.
 
         Unlike _run_segment, this does not call segment.start() — the caller
@@ -524,7 +648,9 @@ class Pipeline:
 
         When *max_video_frames* > 0, stop after exactly that many video frames
         have been processed (per-packet granularity via the TS rewriter).
-        The segment is killed and remaining data stays in the rewriter buffer.
+        The segment is NOT killed — the caller is responsible for killing it
+        when done.  The process stays alive, blocked on its pipe write,
+        ready for subsequent pump calls with higher limits.
         """
         try:
             if first_chunk:
@@ -532,8 +658,9 @@ class Pipeline:
                                     max_video_frames=max_video_frames)
 
             while True:
+                if throttle:
+                    self._throttle()
                 if max_video_frames and self._rewriter.video_frame_count >= max_video_frames:
-                    segment.kill()
                     return
                 if self._shutdown_event.is_set():
                     segment.kill()
@@ -588,7 +715,9 @@ class Pipeline:
             size_mb = buf.size / (1024 * 1024)
             total_mb = buf._total_written / (1024 * 1024)
             pct = (buf.size / config.BUFFER_MAX) * 100
-            print(f"  Buffer: {size_mb:.1f}MB ({pct:.0f}%) | Total streamed: {total_mb:.1f}MB", end="\r", flush=True)
+            lead = self.buffer_lead
+            lead_str = f"{lead:.1f}s" if lead is not None else "n/a"
+            print(f"  Buffer: {size_mb:.1f}MB ({pct:.0f}%) | Lead: {lead_str} | Total streamed: {total_mb:.1f}MB", end="\r", flush=True)
             self._shutdown_event.wait(config.BUFFER_MONITOR_INTERVAL)
         print()  # clear the \r line
 
@@ -649,11 +778,11 @@ class Pipeline:
         self._disconnect_event.clear()
 
     def gate_serving(self) -> None:
-        """Block HTTP handler from serving buffer data (probe-only mode)."""
+        """Block HTTP GET handlers until ungate — prevents probes consuming buffer."""
         self.server.gate()
 
     def ungate_serving(self) -> None:
-        """Allow HTTP handler to serve buffer data."""
+        """Release gated handlers (they drop without serving)."""
         self.server.ungate()
 
     def wait_done(self, timeout: float | None = None) -> bool:

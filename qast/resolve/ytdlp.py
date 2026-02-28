@@ -126,11 +126,19 @@ def download_audio(resolved: ResolvedURL) -> None:
     os.close(fd)
 
     log.info("Downloading audio to %s", path)
-    result = subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-         "-i", audio_url, "-c", "copy", path],
-        capture_output=True, text=True, timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+             "-i", audio_url, "-c", "copy", path],
+            capture_output=True, text=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning("Audio download timed out after 60s")
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return  # fall back to HTTP URL
     if result.returncode != 0:
         log.warning("Audio download failed: %s", result.stderr[:200])
         try:

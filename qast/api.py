@@ -54,6 +54,8 @@ def cast(
     shuffle: bool = False,
     no_placeholder: bool = False,
     cookies_from_browser: str | None = None,
+    preroll: float = 0,
+    placeholder_time: float = 0,
 ) -> None:
     """One-shot cast. Blocks until playback finishes or KeyboardInterrupt.
 
@@ -64,6 +66,7 @@ def cast(
         shuffle: Randomize URL order.
         no_placeholder: Skip loading/up-next screens.
         cookies_from_browser: Browser to extract cookies from.
+        placeholder_time: Minimum placeholder duration between segments.
     """
     urls = [source] if isinstance(source, str) else list(source)
 
@@ -72,7 +75,7 @@ def cast(
         random.shuffle(urls)
 
     raw_ts = device.protocol in ("roku", "dlna")
-    pipeline = Pipeline(raw_ts=raw_ts)
+    pipeline = Pipeline(raw_ts=raw_ts, preroll=preroll, placeholder_time=placeholder_time)
     show_placeholder = not no_placeholder
 
     try:
@@ -106,7 +109,13 @@ def cast(
             raise RuntimeError("Failed to buffer enough data")
 
         video_format = "ts" if raw_ts else "mp4"
-        cast_media(device, pipeline.serve_url, video_format=video_format)
+        if device.protocol == "dlna":
+            pipeline.gate_serving()
+        try:
+            cast_media(device, pipeline.serve_url, video_format=video_format)
+        finally:
+            if device.protocol == "dlna":
+                pipeline.ungate_serving()
         pipeline.clear_disconnect()
         pipeline.wait_done()
 
@@ -133,10 +142,14 @@ class Qast:
         device: Device,
         cookies_from_browser: str | None = None,
         save_stream: str | None = None,
+        preroll: float = 0,
+        placeholder_time: float = 0,
     ) -> None:
         self._device = device
         self._cookies_from_browser = cookies_from_browser
         self._save_stream = save_stream
+        self._preroll = preroll
+        self._placeholder_time = placeholder_time
         self._raw_ts = device.protocol in ("roku", "dlna")
 
         self._pipeline: Pipeline | None = None
@@ -221,6 +234,7 @@ class Qast:
         self._pipeline = Pipeline(
             save_stream=self._save_stream, raw_ts=self._raw_ts,
             buffer_max=buffer_max, buffer_min=buffer_min,
+            preroll=self._preroll, placeholder_time=self._placeholder_time,
         )
         self._pipeline.start_queue(self._queue, show_placeholder=show_placeholder)
 
@@ -230,7 +244,13 @@ class Qast:
             raise RuntimeError("Failed to buffer enough data")
 
         video_format = "ts" if self._raw_ts else "mp4"
-        cast_media(self._device, self._pipeline.serve_url, video_format=video_format)
+        if self._device.protocol == "dlna":
+            self._pipeline.gate_serving()
+        try:
+            cast_media(self._device, self._pipeline.serve_url, video_format=video_format)
+        finally:
+            if self._device.protocol == "dlna":
+                self._pipeline.ungate_serving()
         self._pipeline.clear_disconnect()
         self._playing = True
 

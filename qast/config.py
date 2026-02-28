@@ -29,6 +29,10 @@ CAPTURE_BUFFER_MAX = CAPTURE_BUFFER_SECONDS_MAX * _TOTAL_BPS // 8
 
 # ── Buffer monitor ──
 BUFFER_MONITOR_INTERVAL = 3     # seconds between buffer status prints
+MAX_BUFFER_LEAD = 10            # max seconds of content-time ahead of TV playback
+
+# ── Aspect ratio correction ──
+ASPECT: float = 1.0  # 1.0=no change, >1.0=wider, <1.0=narrower
 
 # ── Timeouts (seconds) ──
 DISCOVERY_TIMEOUT = 15
@@ -64,6 +68,7 @@ def ffmpeg_output_args(
     flush_packets: bool = True,
     pix_fmt: str | None = None,
     scale: bool = True,
+    aspect: float = 1.0,
 ) -> list[str]:
     """Standard ffmpeg output encoding args for all segments."""
     args = []
@@ -71,6 +76,8 @@ def ffmpeg_output_args(
         # Build a -vf filter chain: fit source within VIDEO_SIZE, pad with
         # black bars to preserve aspect ratio (letterbox / pillarbox).
         filters: list[str] = []
+        if aspect != 1.0:
+            filters.append(f"setsar={aspect}")
         if pix_fmt:
             filters.append(f"format={pix_fmt}")
         filters.append(

@@ -119,11 +119,13 @@ class SegmentFFmpeg(SegmentBase):
         source_urls: list[str],
         is_live: bool = False,
         duration: float | None = None,
+        aspect: float = 1.0,
     ) -> None:
         super().__init__()
         self.source_urls = source_urls
         self.is_live = is_live
         self.duration = duration
+        self.aspect = aspect
 
     def _build_cmd(self) -> list[str]:
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
@@ -137,5 +139,5 @@ class SegmentFFmpeg(SegmentBase):
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
 
-        cmd += config.ffmpeg_output_args()
+        cmd += config.ffmpeg_output_args(aspect=self.aspect)
         return cmd

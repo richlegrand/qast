@@ -24,6 +24,7 @@ class StreamHandler(BaseHTTPRequestHandler):
     content_type: str = "video/mp4"
     disconnect_event: threading.Event | None = None
     fake_content_length: bool = False
+    serve_gate: threading.Event | None = None
 
     def do_HEAD(self) -> None:
         log.debug("HEAD from %s", self.client_address[0])
@@ -33,6 +34,13 @@ class StreamHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         log.debug("GET from %s", self.client_address[0])
+        gate = self.__class__.serve_gate
+        if gate is not None and not gate.is_set():
+            log.debug("Gated — holding request from %s", self.client_address[0])
+            gate.wait()
+            log.debug("Gate opened — dropping held connection from %s",
+                       self.client_address[0])
+            return
         buf = self.ring_buffer
         if buf is None:
             self.send_error(503, "No stream available")

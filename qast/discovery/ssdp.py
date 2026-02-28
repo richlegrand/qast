@@ -43,6 +43,7 @@ def ssdp_search(
 
     locations: set[str] = set()
     deadline = time.time() + timeout
+    last_response = 0.0
     while time.time() < deadline:
         try:
             data, _ = sock.recvfrom(4096)
@@ -53,7 +54,11 @@ def ssdp_search(
                     if normalize_location:
                         loc = normalize_location(loc)
                     locations.add(loc)
+                    last_response = time.time()
         except socket.timeout:
+            # Stop early once we have responses and the network has gone quiet
+            if locations and last_response and (time.time() - last_response) >= 3:
+                break
             if time.time() < deadline:
                 sock.sendto(msg, ("239.255.255.250", 1900))
                 continue

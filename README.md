@@ -4,11 +4,11 @@ qast casts anything to any TV from the command line.
 
 ```bash
 qast video.mov                                # Cast local file
-qast https://dropbox.com/abc123/video.mp4   # Cast video located somewhere on web
+qast "https://dropbox.com/abc123/video.mp4"   # Cast video located somewhere on web
 qast "https://youtube.com/watch?v=..."        # Cast YouTube video
 qast screen                                   # Cast your computer desktop
-qast window                                   # Cast a window on your desktop (select via mouseclick)
-qast browser:https://grafana.example.com    # Cast a webpage (via headless Chromium)
+qast window                                   # Cast a window on your desktop (select via mouse click)
+qast "browser:https://grafana.example.com"    # Cast a webpage (via headless Chromium)
 qast webcam                                   # Cast your webcam
 cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
@@ -23,11 +23,12 @@ Almost every TV made in the last decade can receive cast streams. But what they'
 - Roku has varied mechanisms for streaming depending on version/vendor
 - Screen mirroring exists on some platforms, not others
 
-In other words, TVs have inconsistent streaming support — content that plays fine on a Samsung may fail on an LG. Codec mismatches (VP9, H.265, DivX/Xvid), uncommon containers (MKV, WebM, FLV, AVI, OGG), and unsupported audio formats (FLAC, Opus, DTS) are common causes of "format not supported" errors. Even when a TV claims to support a format, it may only handle specific codec profiles or resolutions.
+In other words, TV's streaming features differ. Straightforward "play this stream" reveals inconsistencies
+ — content that plays fine on a Samsung may fail on an LG. Codec mismatches (VP9, H.265, DivX/Xvid), uncommon containers (MKV, WebM, FLV, AVI, OGG), and unsupported audio formats (FLAC, Opus, DTS) are common causes of "format not supported" errors. Even when a TV claims to support a format, it may only handle specific codec profiles or resolutions. 
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, different formats, different resolutions) back-to-back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, formats, and resolutions) back-to-back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
 
 ## Install
 
@@ -82,12 +83,12 @@ YouTube, Vimeo, Twitch, TikTok, Twitter/X, Dropbox, Google Drive, PBS, BBC, and 
 
 ### Live TV streams
 
-HLS and IPTV streams work directly. Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams.
+HLS and IPTV streams work directly. Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams. Note, many of these streams are geo-blocked. Also note, aspect ratio often needs to be tweaked, see `--aspect` arg.  
 
 ```bash
 # HLS streams (URLs are examples — check broadcaster sites for current links)
-qast "https://live-hls-web-aje.getaj.net/AJE/index.m3u8"
-qast "https://ott.grani.me/fr24/index.m3u8"
+qast "https://tv-trtworld.medya.trt.com.tr/master.m3u8"
+qast "https://cbsn-us.cbsnstream.cbsnews.com/out/v1/55a8648e8f134e82a470f83d562deeca/master.m3u8"
 ```
 
 ### Any file on your computer
@@ -163,7 +164,6 @@ ffmpeg -i rtsp://cam1 -i rtsp://cam2 -i rtsp://cam3 -i rtsp://cam4 \
 python my_visualizer.py | ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 30 -i - \
   -f mpegts - | qast -
 ```
-Your code generates frames, ffmpeg encodes them, qast puts them on TV. No file ever touches disk.
 
 **Test pattern:**
 ```bash
@@ -284,13 +284,17 @@ Queue:
   --repeat                  Loop the queue indefinitely
   --shuffle                 Shuffle queue order
   --no-placeholder          Disable "up next" placeholder screens
+  --preroll TIME            Preroll video by the specified time. This is useful for some TVs that either cut off 
+                            the beginning of the first segment or show wait icon because of insufficient buffering.
+  --placeholder-time TIME   Specify amount of time to show placeholders (2s default)                          
+  --duration TIME           Default duration for sources without @duration (e.g., 30s, 5m, 1h, 5m30s)  
 
 Capture:
   --no-cursor               Hide mouse cursor in screen capture
-  --duration TIME           Default duration for sources without @duration (e.g., 30s, 5m, 1h, 5m30s)
 
 Other:
-  --cookies-from-browser B  Extract cookies from browser (chrome, firefox, brave) — helps when
+  --aspect                  Squish or stretch content. 1.0 default, >1.0 stretches, <1.0 squishes
+  --cookies-from-browser B  Extract cookies from browser (B=chrome, firefox, or brave) — helps when
                             YouTube blocks yt-dlp extraction (uses your logged-in session)
   --save-stream FILE        Save the served stream to a file (fMP4 or TS, matching device format)
   -v, --verbose             Debug logging
@@ -396,9 +400,9 @@ while True:
 - **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay
 - **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
 - **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
-- **Movie marathon** — queue up the LOTR trilogy
+- **Movie marathon** — e.g. queue up the LOTR trilogy
 - **Curated kids content** — queue up kid appropriate content -- YouTube Kids, PBS, etc.
-- **Digital signage** — Show "live" data, sales figures, number of users, company news, etc.
+- **Digital signage** — Show "live" data, sales figures, number of users, company news, promotions, etc.
 - **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) screen wherever
 - **Etc** — pipe frames from your custom video source -- art, AI generated content, etc.
 
@@ -414,7 +418,7 @@ No. qast streams forward-only — it's designed for lean-back viewing. If you ne
 
 **What about DRM content?**
 
-If yt-dlp can't extract it, qast can't play it. Netflix, Disney+, etc. use DRM that prevents this.
+If yt-dlp can't extract it, qast can't play it. Netflix, Disney+, etc. use DRM that prevents this. 
 
 **My TV isn't discovered. What do I do?**
 
@@ -426,7 +430,7 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 
 **Why am I seeing several seconds of latency?**
 
-Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example).
+Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop where latency matters most, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example). I'd like to improve this.
 
 ## How it works
  
@@ -457,13 +461,13 @@ See [architecture.md](architecture.md) for details.
 
 MIT
 
-## Why?
+## How did this come about?
 
-Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were intermittantly discoverable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
+Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were invisible to Chrome despite being stream capable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- could you make a streamer that's both video source and TV agnostic? Such a streamer could combine disparate sources back-to-back... and thus qast was born. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- could you make a streamer that's both video source and TV agnostic? And thus qast was born. I hope others find this tool useful. 
 
 qast is pronounced "cast". The q is for queue -- play a queue of varied content back-to-back. (And everyone knows replacing a c with q makes anything sound cooler.) 
 

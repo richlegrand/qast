@@ -61,11 +61,11 @@ class StreamServer:
         return self._url
 
     def gate(self) -> None:
-        """Block handler from serving buffer data (headers-only probe mode)."""
+        """Block GET handlers until ungate() — prevents probes from consuming buffer."""
         StreamHandler.serve_gate = threading.Event()
 
     def ungate(self) -> None:
-        """Allow handler to serve buffer data."""
+        """Release gated handlers (they drop their connections without serving)."""
         gate = StreamHandler.serve_gate
         if gate is not None:
             gate.set()

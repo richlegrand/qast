@@ -64,6 +64,8 @@ class PlayQueue:
             # Wait until we have a resolved item, a pending item to resolve, or are closed
             # Stay alive while a prefetch is in-flight — it will deliver a resolved item
             while not self._resolved and not self._pending:
+                if self._prefetching:
+                    log.debug("Waiting for prefetch to complete...")
                 if self._closed and not self._prefetching:
                     if self._loop and self._all_items:
                         self._pending.extend(self._all_items)
@@ -149,12 +151,18 @@ class PlayQueue:
             qi = self._pending.popleft()
             self._prefetching = True
 
-        resolved = self._resolve_item(qi)
-        with self._item_available:
-            self._resolved.append(resolved)
-            self._prefetching = False
-            self._item_available.notify_all()
-        log.info("Prefetched: %s", resolved.title)
+        try:
+            resolved = self._resolve_item(qi)
+            with self._item_available:
+                self._resolved.append(resolved)
+                self._item_available.notify_all()
+            log.info("Prefetched: %s", resolved.title)
+        except Exception:
+            log.exception("Prefetch failed for %s", qi.url or qi.capture)
+        finally:
+            with self._item_available:
+                self._prefetching = False
+                self._item_available.notify_all()
 
     def remove(self, index: int) -> str | None:
         """Remove a pending item by index. Returns a label or None."""
@@ -189,6 +197,38 @@ class PlayQueue:
         """Return labels for all pending items (thread-safe)."""
         with self._lock:
             return [qi.url or qi.title or qi.capture or "item" for qi in self._pending]
+
+    def is_next_ready(self) -> bool:
+        """True if next() would return quickly (resolved item or instant-resolve capture)."""
+        with self._lock:
+            if self._resolved:
+                return True
+            if self._pending and self._pending[0].capture:
+                return True
+            return False
+
+    def has_more(self) -> bool:
+        """True if more items may become available (pending, prefetching, or loop)."""
+        with self._lock:
+            if self._resolved or self._pending or self._prefetching:
+                return True
+            if self._loop and self._all_items and self._closed:
+                return True
+            return False
+
+    def peek_next_label(self) -> str | None:
+        """Best-effort label for the next item (for placeholder text)."""
+        with self._lock:
+            if self._resolved:
+                return self._resolved[0].title
+            if self._pending:
+                qi = self._pending[0]
+                return qi.title or qi.url or qi.capture
+            # Loop case: next item will be first in _all_items
+            if self._loop and self._all_items:
+                qi = self._all_items[0]
+                return qi.title or qi.url or qi.capture
+            return None
 
     def peek_next(self) -> tuple[int, str | None]:
         """Return (remaining_count, next_resolved_title) under lock.

@@ -100,7 +100,25 @@ def _find_window_by_title(title: str) -> tuple[int, int, int]:
     if not lines:
         raise SystemExit(f"No window found matching: {title}")
 
-    window_id = int(lines[0])
+    # Pick the first mapped (visible) window — xdotool often returns hidden
+    # helper windows first (depth 0, unmapped) that x11grab can't capture.
+    window_id = None
+    for line in lines:
+        wid = int(line)
+        try:
+            info = subprocess.check_output(
+                ["xwininfo", "-id", str(wid)], stderr=subprocess.DEVNULL, timeout=2,
+            ).decode(errors="replace")
+            if "IsViewable" in info:
+                window_id = wid
+                break
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            continue
+
+    if window_id is None:
+        # Fallback to first result
+        window_id = int(lines[0])
+
     width, height = _get_window_geometry(window_id)
     log.info("Found window %d (%dx%d) matching '%s'", window_id, width, height, title)
     return window_id, width, height

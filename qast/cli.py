@@ -18,8 +18,11 @@ class Args:
     repeat: bool
     shuffle: bool
     no_placeholder: bool
+    placeholder_time: str | None
+    preroll: str
     duration: str | None
     playlist: str | None
+    aspect: float
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -83,9 +86,28 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="Skip loading/up-next placeholder screens",
     )
     parser.add_argument(
+        "--placeholder-time",
+        default=None,
+        metavar="TIME",
+        help="Minimum placeholder duration between segments, e.g. 5s, 1m (default: 2s)",
+    )
+    parser.add_argument(
+        "--preroll",
+        default="0",
+        metavar="TIME",
+        help="Preroll duration before the video, e.g. 30s, 1m, 1m15s (helps DLNA TVs that skip the start)",
+    )
+    parser.add_argument(
         "--playlist",
         metavar="FILE",
         help="Load sources from a playlist file (one per line, '-' for stdin)",
+    )
+    parser.add_argument(
+        "--aspect",
+        type=float,
+        default=1.0,
+        metavar="FACTOR",
+        help="Aspect ratio correction: 1.0=no change, >1.0=wider, <1.0=narrower",
     )
     parser.add_argument(
         "--show-all",
@@ -106,6 +128,9 @@ def parse_args(argv: list[str] | None = None) -> Args:
         repeat=ns.repeat,
         shuffle=ns.shuffle,
         no_placeholder=ns.no_placeholder,
+        placeholder_time=ns.placeholder_time,
+        preroll=ns.preroll,
         duration=ns.duration,
         playlist=ns.playlist,
+        aspect=ns.aspect,
     )

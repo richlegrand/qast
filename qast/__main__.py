@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import termios
 import time
@@ -23,6 +24,26 @@ from .resolve.ytdlp import resolve_source
 from .source import merge_duration_args, parse_duration, parse_source, has_capture_source
 
 log = get_logger("main")
+
+
+def _stdin_peer_name() -> str:
+    """Try to find the process piping into our stdin (Linux only)."""
+    try:
+        link = os.readlink("/proc/self/fd/0")
+        if not link.startswith("pipe:"):
+            return os.path.basename(link)
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit() or entry == str(os.getpid()):
+                continue
+            try:
+                if os.readlink(f"/proc/{entry}/fd/1") == link:
+                    with open(f"/proc/{entry}/cmdline") as f:
+                        return f.read().replace("\0", " ").strip()
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return "Stdin"
 
 
 def _select_device_auto(devices: list[Device], selector: str | None) -> Device:
@@ -47,6 +68,7 @@ def _select_device_auto(devices: list[Device], selector: str | None) -> Device:
 def main() -> None:
     args = parse_args()
     setup_logging(verbose=args.verbose)
+    config.ASPECT = args.aspect
 
     print("Scanning for devices...")
     devices = discover_all(show_all=args.show_all)
@@ -71,6 +93,8 @@ def main() -> None:
         raw_ts = device.protocol in ("roku", "dlna")
 
         duration = parse_duration(args.duration) if args.duration else None
+        preroll = parse_duration(args.preroll) if args.preroll else 0
+        placeholder_time = parse_duration(args.placeholder_time) if args.placeholder_time else 0
 
         if args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin
@@ -78,12 +102,13 @@ def main() -> None:
                 save_stream=args.save_stream, raw_ts=raw_ts,
                 buffer_max=config.CAPTURE_BUFFER_MAX,
                 buffer_min=config.CAPTURE_BUFFER_MIN,
-                verbose=verbose,
+                verbose=verbose, preroll=preroll,
+                placeholder_time=placeholder_time,
             )
-            segment = SegmentFFmpeg(["pipe:0"])
+            segment = SegmentFFmpeg(["pipe:0"], aspect=config.ASPECT)
             if verbose:
                 print("Reading from stdin...")
-            pipeline.start_capture(segment, title="Stdin")
+            pipeline.start_capture(segment, title=_stdin_peer_name())
 
         else:
             # Source mode — URLs, files, captures, or any mix
@@ -120,7 +145,8 @@ def main() -> None:
             if len(items) == 1 and not items[0].capture:
                 # Single URL mode — resolve, show placeholder, play
                 item = items[0]
-                pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
+                pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose,
+                                    preroll=preroll, placeholder_time=placeholder_time)
 
                 print("Resolving...")
                 resolved = resolve_source(
@@ -157,10 +183,12 @@ def main() -> None:
                         save_stream=args.save_stream, raw_ts=raw_ts,
                         buffer_max=config.CAPTURE_BUFFER_MAX,
                         buffer_min=config.CAPTURE_BUFFER_MIN,
-                        verbose=verbose,
+                        verbose=verbose, preroll=preroll,
+                        placeholder_time=placeholder_time,
                     )
                 else:
-                    pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose)
+                    pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose,
+                                        preroll=preroll, placeholder_time=placeholder_time)
 
                 queue = PlayQueue(loop=args.repeat, cookies_from_browser=args.cookies_from_browser)
                 for item in items:
@@ -191,7 +219,13 @@ def main() -> None:
             print(f"  Streaming at: {pipeline.serve_url}")
         try:
             video_format = "ts" if raw_ts else "mp4"
-            cast_media(device, pipeline.serve_url, video_format=video_format)
+            if device.protocol == "dlna":
+                pipeline.gate_serving()
+            try:
+                cast_media(device, pipeline.serve_url, video_format=video_format)
+            finally:
+                if device.protocol == "dlna":
+                    pipeline.ungate_serving()
         except Exception as e:
             print(f"  Cast failed: {e}")
             sys.exit(1)

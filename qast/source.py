@@ -33,11 +33,18 @@ def parse_duration(s: str) -> float:
 
 
 def _is_duration_suffix(s: str) -> bool:
-    """Check if a string looks like a duration suffix (e.g. '5m', '30s', '1h30m')."""
+    """Check if a string looks like a duration suffix (e.g. '5m', '30s', '1h30m', '15')."""
     if not s:
         return False
     m = _DURATION_RE.fullmatch(s.lower())
-    return bool(m and m.group(0))
+    if m and m.group(0):
+        return True
+    # Accept bare numbers as seconds (e.g. "15" → 15s)
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
 
 
 def _split_duration_suffix(raw: str) -> tuple[str, float | None]:

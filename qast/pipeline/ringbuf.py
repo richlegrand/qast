@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
 
 from ..log import get_logger
@@ -24,6 +25,7 @@ class RingBuffer:
         self._size = 0
         self._total_written = 0
         self._closed = False
+        self._first_read_time: float | None = None
         self._lock = threading.Lock()
         self._data_available = threading.Condition(self._lock)
         self._space_available = threading.Condition(self._lock)
@@ -42,6 +44,11 @@ class RingBuffer:
     def closed(self) -> bool:
         with self._lock:
             return self._closed
+
+    @property
+    def first_read_time(self) -> float | None:
+        with self._lock:
+            return self._first_read_time
 
     def write(self, data: bytes) -> None:
         """Append data to the buffer. Blocks if full (back-pressure)."""
@@ -73,6 +80,9 @@ class RingBuffer:
 
             chunk = self._buf.popleft()
             self._size -= len(chunk)
+
+            if self._first_read_time is None:
+                self._first_read_time = time.monotonic()
 
             # If chunk is larger than requested, put remainder back
             if len(chunk) > size:
