@@ -98,7 +98,7 @@ Create a programmatic queue. Build up items with `add()`, then call `play()`.
 | Parameter             | Type                   | Default | Description                                      |
 |-----------------------|------------------------|---------|--------------------------------------------------|
 | `device`              | `Device \| str \| int` | —       | Target device.                                   |
-| `cookies_from_browser`| `str \| None`          | `None`  | Browser to extract cookies from (e.g. "chrome").                 |
+| `cookies_from_browser`| `str \| None`          | `None`  | Browser to extract cookies from (e.g. `"chrome"`, `"firefox"`, `"brave"`, `"edge"`, `"safari"`). |
 | `save_stream`         | `str \| None`          | `None`  | File path to save raw stream (MPEG-TS).          |
 | `preroll`             | `float`                | `0`     | Seconds of placeholder before the first item.    |
 | `placeholder_time`    | `float`                | `0`     | Minimum placeholder duration between segments.   |

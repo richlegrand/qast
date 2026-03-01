@@ -81,16 +81,6 @@ qast "https://twitch.tv/..."
 
 YouTube, Vimeo, Twitch, TikTok, Twitter/X, Dropbox, Google Drive, PBS, BBC, and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp.
 
-### Live TV streams
-
-HLS and IPTV streams work directly. Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams. Note, many of these streams are geo-blocked. Also note, aspect ratio often needs to be tweaked, see `--aspect` arg.  
-
-```bash
-# HLS streams (URLs are examples — check broadcaster sites for current links)
-qast "https://tv-trtworld.medya.trt.com.tr/master.m3u8"
-qast "https://cbsn-us.cbsnstream.cbsnews.com/out/v1/55a8648e8f134e82a470f83d562deeca/master.m3u8"
-```
-
 ### Any file on your computer
 
 ```bash
@@ -100,7 +90,7 @@ qast ~/Videos/*.mp4
 
 MP4, MKV, AVI, WebM, FLV, OGG, WMV — anything ffmpeg can read.
 
-### Your entire screen
+### Your screen/desktop
 
 ```bash
 qast screen                    # primary monitor
@@ -108,7 +98,7 @@ qast screen --no-cursor        # hide mouse cursor
 qast screen@5m                 # capture for 5 minutes
 ```
 
-Works even if your TV doesn't support Miracast or AirPlay.
+Works if your TV doesn't support Miracast or AirPlay.
 
 ### A single window
 
@@ -132,6 +122,16 @@ Renders a URL in headless Chromium and casts the result to your TV. Great for da
 ```bash
 qast webcam                    # default camera
 qast webcam@2m                 # capture for 2 minutes
+```
+
+### Live TV streams
+
+HLS and IPTV streams work directly. Many international broadcasters stream free online but getting those streams onto your TV is a pain and sometimes requires a paid app. qast handles the HLS fetching and transcoding — you just give it the URL. See [iptv-org](https://iptv-org.github.io/) for a directory of free streams. Note, many of these streams are geo-blocked. Also note, aspect ratio often needs to be tweaked, see `--aspect` arg.  
+
+```bash
+# HLS streams (URLs are examples — check broadcaster sites for current links)
+qast "https://tv-trtworld.medya.trt.com.tr/master.m3u8"
+qast "https://cbsn-us.cbsnstream.cbsnews.com/out/v1/55a8648e8f134e82a470f83d562deeca/master.m3u8"
 ```
 
 ### Piped data
@@ -286,19 +286,24 @@ Queue:
   --repeat                  Loop the queue indefinitely
   --shuffle                 Shuffle queue order
   --no-placeholder          Disable "up next" placeholder screens
-  --preroll TIME            Preroll video by the specified time. This is useful for some TVs that either cut off 
-                            the beginning of the first segment or show wait icon because of insufficient buffering.
+  --preroll TIME            Preroll video by the specified time. This is useful for some 
+                            TVs that either cut off the beginning of the first segment 
+                            or show wait icon because of insufficient buffering.
   --placeholder-time TIME   Specify amount of time to show placeholders (2s default)                          
-  --duration TIME           Default duration for sources without @duration (e.g., 30s, 5m, 1h, 5m30s)  
+  --duration TIME           Default duration for sources without @duration 
+                            (e.g., 30s, 5m, 1h, 5m30s)  
 
 Capture:
   --no-cursor               Hide mouse cursor in screen capture
 
 Other:
-  --aspect                  Squish or stretch content. 1.0 default, >1.0 stretches, <1.0 squishes
-  --cookies-from-browser B  Extract cookies from browser (B=chrome, firefox, or brave) — helps when
-                            YouTube blocks yt-dlp extraction (uses your logged-in session)
-  --save-stream FILE        Save the served stream to a file (fMP4 or TS, matching device format)
+  --aspect                  Squish or stretch content. 1.0 default, >1.0 stretches, 
+                            <1.0 squishes
+  --cookies-from-browser B  Extract cookies from browser (B=chrome, firefox, brave, edge,
+                            or safari) — helps when YouTube blocks yt-dlp extraction
+                            (uses your logged-in session)
+  --save-stream FILE        Save the served stream to a file (fMP4 or TS, matching device
+                            format)
   -v, --verbose             Debug logging
   -h, --help                Show help
 ```
