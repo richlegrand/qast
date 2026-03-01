@@ -315,6 +315,8 @@ q                     quit
 
 ## Python API
 
+Full API reference: [api.md](api.md)
+
 qast can be given detailed instructions via custom Python code.
 
 ### One-shot casting
