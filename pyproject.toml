@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qast"
+version = "0.1.0"
+description = "Cast anything to any TV from the command line"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "Rich LeGrand" },
+]
+keywords = ["cast", "chromecast", "dlna", "roku", "streaming", "tv"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+]
+
+[project.optional-dependencies]
+chromecast = ["pychromecast>=14.0"]
+browser = ["playwright>=1.40"]
+ytdlp = ["yt-dlp>=2024.1"]
+all = ["pychromecast>=14.0", "playwright>=1.40", "yt-dlp>=2024.1"]
+
+[project.urls]
+Homepage = "https://github.com/richlegrand/qast"
+Repository = "https://github.com/richlegrand/qast"
+
+[project.scripts]
+qast = "qast.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["qast*"]
