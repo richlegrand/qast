@@ -93,6 +93,17 @@ class Pipeline:
         self.now_playing: str | None = None
         self.current_duration: float | None = None
         self._item_video_frames: int = 0    # video frames for current item (resets per item)
+        self._segment_cb: object | None = None  # Callable[[], None]
+
+    def set_segment_callback(self, cb) -> None:
+        self._segment_cb = cb
+
+    def _notify_segment(self) -> None:
+        if self._segment_cb:
+            try:
+                self._segment_cb()
+            except Exception:
+                pass
 
     # ── buffer lead throttle ────────────────────────────────────
 
@@ -100,7 +111,16 @@ class Pipeline:
         """Block until buffer lead drops below maximum."""
         frt = self.ring_buffer.first_read_time
         if frt is None:
-            return  # TV hasn't connected yet — no throttle
+            # Before TV connects: once minimum buffer is filled, block
+            # until the TV starts reading to prevent unbounded accumulation.
+            if self.ring_buffer.size >= self.ring_buffer.min_fill:
+                while self.ring_buffer.first_read_time is None:
+                    if self._shutdown_event.is_set() or self._skip_event.is_set():
+                        return
+                    time.sleep(0.1)
+                frt = self.ring_buffer.first_read_time
+            else:
+                return  # Still filling initial buffer — no throttle
         fps = int(config.VIDEO_FPS)
         while True:
             content_time = self._total_video_frames / fps
@@ -165,6 +185,8 @@ class Pipeline:
                 ph.kill()
                 segment.kill()
                 raise _PipelineShutdown
+            if self._skip_event.is_set():
+                break
             if data_ready.wait(timeout=0.5):
                 break
             # Don't extend if we already have enough content buffered ahead
@@ -238,6 +260,8 @@ class Pipeline:
             if self._shutdown_event.is_set():
                 ph.kill()
                 raise _PipelineShutdown
+            if self._skip_event.is_set():
+                break
             if ready.wait(timeout=0.5):
                 break
             # Don't extend if we already have enough content buffered ahead
@@ -270,6 +294,7 @@ class Pipeline:
         loading_duration: float = LOADING_DURATION,
         show_placeholder: bool = True,
         loop: bool = False,
+        has_audio: bool = True,
     ) -> None:
         """Start pipeline for a single video, optionally with a loading placeholder."""
         if self.master:
@@ -316,6 +341,7 @@ class Pipeline:
                 self.now_playing = title
                 self.current_duration = duration
                 self._item_video_frames = 0
+                self._notify_segment()
 
                 use_placeholder = (show_placeholder or self._preroll > 0) and title
                 if first and use_placeholder:
@@ -385,6 +411,9 @@ class Pipeline:
         self._rewriter.set_offset(0)
         try:
             while not self._shutdown_event.is_set():
+                # Clear any stale skip from the previous segment
+                self._skip_event.clear()
+
                 if first:
                     item = queue.next()
                 else:
@@ -406,6 +435,7 @@ class Pipeline:
                         is_live=item.is_live,
                         duration=item.duration,
                         aspect=config.ASPECT,
+                        has_audio=item.has_audio,
                     )
 
                 # Reset skip event for this item
@@ -415,6 +445,7 @@ class Pipeline:
                 self.now_playing = item.title
                 self.current_duration = item.duration
                 self._item_video_frames = 0
+                self._notify_segment()
 
                 # Per-item placeholder: preroll only forces the loading screen,
                 # not between-segment placeholders.
@@ -502,6 +533,7 @@ class Pipeline:
 
         self.now_playing = title or "Capture"
         self.current_duration = getattr(segment, 'duration', None)
+        self._notify_segment()
         self._item_video_frames = 0
 
         self._rewriter.set_offset(0)
@@ -702,13 +734,15 @@ class Pipeline:
 
     def _start_monitor(self) -> None:
         if not self._verbose:
-            return  # progress bar replaces monitor in non-verbose mode
+            return
         self._monitor_thread = threading.Thread(target=self._monitor, daemon=True)
         self._monitor_thread.start()
 
     def _monitor(self) -> None:
-        """Periodically print buffer status."""
+        """Periodically print buffer status (disabled when console is active)."""
         while not self._shutdown_event.is_set():
+            if self._segment_cb:
+                return  # console handles display
             buf = self.ring_buffer
             if buf.closed and buf.size == 0:
                 break

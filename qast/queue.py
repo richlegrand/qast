@@ -114,13 +114,16 @@ class PlayQueue:
             cookies_from_browser=self._cookies_from_browser,
         )
         resolved.show_placeholder = qi.show_placeholder
+        # Cache the resolved title for display in queue status
+        if not qi.title and resolved.title:
+            qi.title = resolved.title
         return resolved
 
-    def resolve_next(self) -> None:
+    def resolve_next(self) -> ResolvedURL | None:
         """Resolve the next pending item synchronously (for eager first-item resolution)."""
         with self._lock:
             if not self._pending:
-                return
+                return None
             qi = self._pending.popleft()
 
         resolved = self._resolve_item(qi)
@@ -128,6 +131,7 @@ class PlayQueue:
             self._resolved.append(resolved)
             self._item_available.notify_all()
         log.info("Resolved: %s", resolved.title)
+        return resolved
 
     def start_prefetch(self) -> None:
         """Start background resolution of the next pending item."""
@@ -165,12 +169,23 @@ class PlayQueue:
                 self._item_available.notify_all()
 
     def remove(self, index: int) -> str | None:
-        """Remove a pending item by index. Returns a label or None."""
+        """Remove an item by rotation index. Returns a label or None."""
         with self._lock:
-            if 0 <= index < len(self._pending):
-                qi = self._pending[index]
-                del self._pending[index]
-                return qi.url or qi.title or qi.capture
+            if self._loop and self._all_items:
+                if 0 <= index < len(self._all_items):
+                    qi = self._all_items[index]
+                    del self._all_items[index]
+                    # Also remove from pending if present
+                    try:
+                        self._pending.remove(qi)
+                    except ValueError:
+                        pass
+                    return qi.title or qi.url or qi.capture
+            else:
+                if 0 <= index < len(self._pending):
+                    qi = self._pending[index]
+                    del self._pending[index]
+                    return qi.title or qi.url or qi.capture
         return None
 
     def close(self) -> None:
@@ -240,6 +255,47 @@ class PlayQueue:
             count = len(self._pending) + len(self._resolved)
             title = self._resolved[0].title if self._resolved else None
             return count, title
+
+    @staticmethod
+    def _item_label(qi: QueueItem) -> str:
+        label = qi.title or qi.url or qi.capture or "item"
+        if qi.duration:
+            mins, secs = divmod(int(qi.duration), 60)
+            label += f"  ({mins}:{secs:02d})"
+        return label
+
+    def rotation_labels(self, current_title: str | None = None) -> list[str]:
+        """Return item labels in play order.
+
+        In repeat mode: full _all_items list, rotated so the item after
+        the currently playing one is first.
+        In non-repeat mode: pending items only.
+        """
+        with self._lock:
+            if not self._loop:
+                return [self._item_label(qi) for qi in self._pending]
+
+            if not self._all_items:
+                return []
+
+            labels = [self._item_label(qi) for qi in self._all_items]
+
+            if not current_title:
+                return labels
+
+            # Find current item and rotate so next-up is index 0
+            current_idx = -1
+            for i, qi in enumerate(self._all_items):
+                if qi.title == current_title:
+                    current_idx = i
+                    break
+
+            if current_idx < 0:
+                return labels
+
+            n = len(labels)
+            start = (current_idx + 1) % n
+            return labels[start:] + labels[:start]
 
     @property
     def status(self) -> str:

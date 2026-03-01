@@ -10,6 +10,7 @@ Parses source strings like:
 
 from __future__ import annotations
 
+import os
 import re
 
 from .queue import QueueItem
@@ -96,10 +97,14 @@ def parse_source(
                          title="Screen Capture")
 
     if source == "webcam":
+        if not os.path.exists("/dev/video0"):
+            raise SystemExit("No webcam found at /dev/video0. Is a camera connected?")
         return QueueItem(capture="webcam", duration=duration, title="Webcam")
 
     if source.startswith("browser:"):
         url = source[len("browser:"):]
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
         return QueueItem(capture="browser", url=url, duration=duration,
                          title=url, cursor=cursor)
 

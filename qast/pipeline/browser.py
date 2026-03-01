@@ -36,6 +36,8 @@ class BrowserSegment(SegmentBase):
 
     def __init__(self, url: str, duration: float | None = None) -> None:
         super().__init__()
+        if "://" not in url:
+            url = "https://" + url
         self.url = url
         self.duration = duration
         self._capture_thread: threading.Thread | None = None

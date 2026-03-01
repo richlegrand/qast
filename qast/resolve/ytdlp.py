@@ -39,6 +39,8 @@ class ResolvedURL:
     window_title: str | None = None # for capture="window"
     show_placeholder: bool = True   # per-item placeholder toggle
     cursor: bool = True             # show cursor in screen/window capture
+    has_audio: bool = True           # False when only video stream available
+    _original_url: str = ""          # for re-resolution on fallback
     _temp_files: list[str] = field(default_factory=list, repr=False)
 
     def cleanup(self) -> None:
@@ -107,6 +109,7 @@ def resolve(url: str, cookies_from_browser: str | None = None) -> ResolvedURL | 
         duration=duration,
         is_live=is_live,
         source_urls=urls,
+        _original_url=url,
     )
 
 
@@ -117,6 +120,9 @@ def download_audio(resolved: ResolvedURL) -> None:
     truncation. By making the audio a local file, ffmpeg only has one
     HTTP input (video) and the bug is avoided.
     The audio file is typically small (~1-2MB) so this is fast.
+
+    On timeout/failure, falls back to a single muxed URL by re-resolving
+    with format "b" to avoid hanging ffmpeg with two HTTP inputs.
     """
     if resolved.is_live or len(resolved.source_urls) < 2:
         return
@@ -130,26 +136,58 @@ def download_audio(resolved: ResolvedURL) -> None:
         result = subprocess.run(
             ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
              "-i", audio_url, "-c", "copy", path],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
-        log.warning("Audio download timed out after 60s")
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        return  # fall back to HTTP URL
+        log.warning("Audio download timed out, falling back to muxed stream")
+        _cleanup_path(path)
+        _fallback_to_muxed(resolved)
+        return
     if result.returncode != 0:
         log.warning("Audio download failed: %s", result.stderr[:200])
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        return  # fall back to HTTP URL
+        _cleanup_path(path)
+        _fallback_to_muxed(resolved)
+        return
 
     resolved.source_urls[1] = path
     resolved._temp_files = [path]
     log.info("Audio downloaded (%d bytes)", os.path.getsize(path))
+
+
+def _cleanup_path(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _fallback_to_muxed(resolved: ResolvedURL) -> None:
+    """Re-resolve with yt-dlp to get a single muxed stream (video+audio).
+
+    The muxed stream may be lower resolution than the separate DASH streams,
+    but it includes audio and avoids the multi-HTTP-input ffmpeg bug.
+    """
+    log.info("Re-resolving for muxed stream")
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "-j", "--no-playlist", "-f", "b[ext=mp4]/b",
+             resolved._original_url],
+            capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
+        )
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            url = info.get("url")
+            if url:
+                resolved.source_urls = [url]
+                log.info("Falling back to muxed stream (may be lower resolution)")
+                return
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
+        log.warning("Muxed re-resolve failed: %s", e)
+
+    # Last resort: video-only
+    resolved.source_urls = [resolved.source_urls[0]]
+    resolved.has_audio = False
+    log.warning("Using video-only stream (no audio)")
 
 
 def resolve_source(

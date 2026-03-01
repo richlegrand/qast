@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
@@ -200,6 +201,10 @@ class WebcamSegment(SegmentBase):
         duration: float | None = None,
     ) -> None:
         super().__init__()
+        if not os.path.exists(device):
+            raise FileNotFoundError(
+                f"No webcam found at {device}. Is a camera connected?"
+            )
         self.device = device
         self.duration = duration
 

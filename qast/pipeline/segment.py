@@ -120,12 +120,14 @@ class SegmentFFmpeg(SegmentBase):
         is_live: bool = False,
         duration: float | None = None,
         aspect: float = 1.0,
+        has_audio: bool = True,
     ) -> None:
         super().__init__()
         self.source_urls = source_urls
         self.is_live = is_live
         self.duration = duration
         self.aspect = aspect
+        self.has_audio = has_audio
 
     def _build_cmd(self) -> list[str]:
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
@@ -135,6 +137,13 @@ class SegmentFFmpeg(SegmentBase):
 
         for url in self.source_urls:
             cmd += ["-i", url]
+
+        if not self.has_audio:
+            cmd += [
+                "-f", "lavfi", "-i",
+                f"anullsrc=r={config.AUDIO_SAMPLE_RATE}"
+                f":cl={'stereo' if config.AUDIO_CHANNELS == '2' else 'mono'}",
+            ]
 
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]

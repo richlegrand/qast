@@ -11,14 +11,13 @@ from . import config
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
 from .tty import tty_input
-from .controller import Controller
+from .console import Console
 from .discovery.cast import stop_discovery
 from .discovery.scan import discover_all, select_device
 from .discovery.types import Device
 from .log import setup_logging, get_logger
 from .pipeline.pipeline import Pipeline
 from .pipeline.segment import SegmentFFmpeg
-from .progress import ProgressBar
 from .queue import PlayQueue
 from .resolve.ytdlp import resolve_source
 from .source import merge_duration_args, parse_duration, parse_source, has_capture_source
@@ -81,9 +80,7 @@ def main() -> None:
 
     pipeline: Pipeline | None = None
     device: Device | None = None
-    controller: Controller | None = None
-    resolved_obj: object | None = None
-    progress: ProgressBar | None = None
+    console: Console | None = None
     queue: PlayQueue | None = None
     verbose = args.verbose
     try:
@@ -142,70 +139,43 @@ def main() -> None:
             ]
             any_capture = has_capture_source(items)
 
-            if len(items) == 1 and not items[0].capture:
-                # Single URL mode — resolve, show placeholder, play
-                item = items[0]
+            if args.shuffle:
+                import random
+                random.shuffle(items)
+
+            # Use capture buffer sizes when any item is a capture source
+            if any_capture:
+                pipeline = Pipeline(
+                    save_stream=args.save_stream, raw_ts=raw_ts,
+                    buffer_max=config.CAPTURE_BUFFER_MAX,
+                    buffer_min=config.CAPTURE_BUFFER_MIN,
+                    verbose=verbose, preroll=preroll,
+                    placeholder_time=placeholder_time,
+                )
+            else:
                 pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose,
                                     preroll=preroll, placeholder_time=placeholder_time)
 
-                print("Resolving...")
-                resolved = resolve_source(
-                    item.url,
-                    duration=item.duration,
-                    cookies_from_browser=args.cookies_from_browser,
-                )
-                resolved_obj = resolved
+            queue = PlayQueue(loop=args.repeat, cookies_from_browser=args.cookies_from_browser)
+            for item in items:
+                queue.add_item(item)
+            queue.close()
 
-                if verbose:
-                    print(f"  Title: {resolved.title}")
-                    if resolved.duration:
-                        mins, secs = divmod(int(resolved.duration), 60)
-                        print(f"  Duration: {mins}m{secs:02d}s")
-                if resolved.is_live:
+            # Eagerly resolve the first item so the user sees progress
+            print("Resolving...")
+            first_resolved = queue.resolve_next()
+            if first_resolved and first_resolved.title:
+                print(f"Playing: {first_resolved.title}", end="")
+                if first_resolved.duration:
+                    mins, secs = divmod(int(first_resolved.duration), 60)
+                    print(f"  ({mins}:{secs:02d})", end="")
+                print()
+                if first_resolved.is_live:
                     print("  Live stream detected.")
 
-                if verbose:
-                    print("Starting pipeline...")
-                pipeline.start_single(resolved.source_urls, is_live=resolved.is_live,
-                                      title=resolved.title, duration=resolved.duration,
-                                      show_placeholder=not args.no_placeholder,
-                                      loop=args.repeat)
-
-            else:
-                # Queue mode — multiple sources or capture sources
-                if args.shuffle:
-                    import random
-                    random.shuffle(items)
-
-                # Use capture buffer sizes when any item is a capture source
-                if any_capture:
-                    pipeline = Pipeline(
-                        save_stream=args.save_stream, raw_ts=raw_ts,
-                        buffer_max=config.CAPTURE_BUFFER_MAX,
-                        buffer_min=config.CAPTURE_BUFFER_MIN,
-                        verbose=verbose, preroll=preroll,
-                        placeholder_time=placeholder_time,
-                    )
-                else:
-                    pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose,
-                                        preroll=preroll, placeholder_time=placeholder_time)
-
-                queue = PlayQueue(loop=args.repeat, cookies_from_browser=args.cookies_from_browser)
-                for item in items:
-                    queue.add_item(item)
-                queue.close()
-
-                # Eagerly resolve the first item so the user sees progress
-                print("Resolving...")
-                queue.resolve_next()
-
-                if verbose:
-                    print(f"Starting pipeline with {len(items)} items...")
-                pipeline.start_queue(queue, show_placeholder=not args.no_placeholder)
-
-                # Start interactive controller for queue management
-                controller = Controller(pipeline, queue)
-                controller.start()
+            if verbose:
+                print(f"Starting pipeline with {len(items)} items...")
+            pipeline.start_queue(queue, show_placeholder=not args.no_placeholder)
 
         is_capture = args.urls == ["-"]
         if queue:
@@ -235,13 +205,12 @@ def main() -> None:
         pipeline.clear_disconnect()
 
         print(f"Streaming to {device.name}")
-        if controller:
-            print("Commands: <source[@duration]> add | s=skip | q=quit | ?=status\n")
 
-        # Start progress bar (non-verbose mode only)
-        if not verbose:
-            progress = ProgressBar(pipeline, queue)
-            progress.start()
+        # Start interactive console (after all setup prints are done)
+        if sys.stdin.isatty():
+            console = Console(pipeline, queue)
+            pipeline.set_segment_callback(console.on_segment_change)
+            console.start()
 
         if device.protocol == "dlna":
             # DLNA renderers manage their own playback state — re-casting
@@ -270,14 +239,10 @@ def main() -> None:
         if device:
             stop_device(device)
     finally:
-        if progress:
-            progress.stop()
-        if controller:
-            controller.stop()
+        if console:
+            console.stop()
         if pipeline:
             pipeline.shutdown()
-        if resolved_obj and hasattr(resolved_obj, 'cleanup'):
-            resolved_obj.cleanup()
         stop_discovery()
         # Restore terminal state — ffmpeg can leave echo disabled
         if _saved_termios is not None:
