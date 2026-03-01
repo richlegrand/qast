@@ -8,6 +8,7 @@ import termios
 import time
 
 from . import config
+from .api import _create_pipeline, _wait_and_cast
 from .cast.dispatch import cast_media, stop_device
 from .cli import parse_args
 from .tty import tty_input
@@ -87,7 +88,7 @@ def main() -> None:
         device = _select_device_auto(devices, args.device)
         print(f"\nSelected: {device.name}\n")
 
-        raw_ts = device.protocol in ("roku", "dlna")
+        video_format = "ts" if device.protocol in ("roku", "dlna") else "mp4"
 
         duration = parse_duration(args.duration) if args.duration else None
         preroll = parse_duration(args.preroll) if args.preroll else 0
@@ -96,12 +97,10 @@ def main() -> None:
         first_resolved = None
         if args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin
-            pipeline = Pipeline(
-                save_stream=args.save_stream, raw_ts=raw_ts,
-                buffer_max=config.CAPTURE_BUFFER_MAX,
-                buffer_min=config.CAPTURE_BUFFER_MIN,
-                verbose=verbose, preroll=preroll,
-                placeholder_time=placeholder_time,
+            pipeline = _create_pipeline(
+                device, True,
+                save_stream=args.save_stream, verbose=verbose,
+                preroll=preroll, placeholder_time=placeholder_time,
             )
             segment = SegmentFFmpeg(["pipe:0"], aspect=config.ASPECT, has_audio=False)
             if verbose:
@@ -144,18 +143,11 @@ def main() -> None:
                 import random
                 random.shuffle(items)
 
-            # Use capture buffer sizes when any item is a capture source
-            if any_capture:
-                pipeline = Pipeline(
-                    save_stream=args.save_stream, raw_ts=raw_ts,
-                    buffer_max=config.CAPTURE_BUFFER_MAX,
-                    buffer_min=config.CAPTURE_BUFFER_MIN,
-                    verbose=verbose, preroll=preroll,
-                    placeholder_time=placeholder_time,
-                )
-            else:
-                pipeline = Pipeline(save_stream=args.save_stream, raw_ts=raw_ts, verbose=verbose,
-                                    preroll=preroll, placeholder_time=placeholder_time)
+            pipeline = _create_pipeline(
+                device, any_capture,
+                save_stream=args.save_stream, verbose=verbose,
+                preroll=preroll, placeholder_time=placeholder_time,
+            )
 
             queue = PlayQueue(loop=args.repeat, cookies_from_browser=args.cookies_from_browser)
             for item in items:
@@ -173,29 +165,17 @@ def main() -> None:
         is_capture = args.urls == ["-"]
         if queue:
             is_capture = is_capture or queue.has_capture_items
-        min_frames = int(config.VIDEO_GOP) + 1 if is_capture else 0
-        if not pipeline.wait_ready(min_frames=min_frames):
-            print("Failed to buffer enough data. Exiting.")
-            sys.exit(1)
-
-        if verbose:
-            print(f"  Streaming at: {pipeline.serve_url}")
         try:
-            video_format = "ts" if raw_ts else "mp4"
-            if device.protocol == "dlna":
-                pipeline.gate_serving()
-            try:
-                cast_media(device, pipeline.serve_url, video_format=video_format)
-            finally:
-                if device.protocol == "dlna":
-                    pipeline.ungate_serving()
+            _wait_and_cast(pipeline, device, is_capture)
+        except RuntimeError as e:
+            print(f"{e}. Exiting.")
+            sys.exit(1)
         except Exception as e:
             print(f"  Cast failed: {e}")
             sys.exit(1)
 
-        # Clear any disconnect events from the TV probing the stream
-        # during SetAVTransportURI — these are not real disconnects.
-        pipeline.clear_disconnect()
+        if verbose:
+            print(f"  Streaming at: {pipeline.serve_url}")
 
         print(f"Streaming to {device.name}")
 

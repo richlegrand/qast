@@ -150,7 +150,7 @@ ffmpeg -loglevel quiet -f pulse -i $(pactl get-default-sink).monitor \
 -map "[v]" -f mpegts - | qast -
 ```
 
-Your music as a real-time frequency-based waterfall graph on your TV. ffmpeg has lots of this kind of stuff. 
+Your music as a real-time frequency-based waterfall graph on your TV. Note, ffmpeg has lots and lots of this kind of [stuff](https://gist.github.com/yradunchev/1790b8aeffc784debe6479a53613e422). (But still waiting for --flight-simulator and --play-chess... C'mon ffmpeg!)
 
 **Security cam grid:**
 ```bash
@@ -478,7 +478,7 @@ qast is pronounced "cast". The q is for queue -- play a queue of varied content 
 
 qast leans heavily on existing projects.
 
-- [ffmpeg](https://www.ffmpeg.org/) — transcoding, muxing, screen capture, window capture, placeholder video generation
+- [ffmpeg](https://www.ffmpeg.org/) — transcoding, muxing, screen capture, window capture, audio visualization, placeholder video encoding
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — video extraction
 - [pychromecast](https://github.com/home-assistant-libs/pychromecast) — Chromecast protocol
 - [Playwright](https://playwright.dev/) — headless Chromium (browser) capture
