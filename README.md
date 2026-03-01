@@ -14,6 +14,49 @@ cat stream.ts | qast -                        # Cast generic piped data
 qast url1 url2 url3 --repeat                  # Cast varied content, queued, and looped
 ```
 
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+<!-- run: npx doctoc /home/rich/qast/README.md --title '## Contents' -->
+## Contents
+
+- [The problem](#the-problem)
+- [The solution](#the-solution)
+- [Install](#install)
+  - [Requirements](#requirements)
+  - [Optional extras](#optional-extras)
+- [Quick start](#quick-start)
+- [What can you cast?](#what-can-you-cast)
+  - [Anything on the internet](#anything-on-the-internet)
+  - [Any file on your computer](#any-file-on-your-computer)
+  - [Your screen/desktop](#your-screendesktop)
+  - [A single window](#a-single-window)
+  - [A webpage](#a-webpage)
+  - [Your webcam](#your-webcam)
+  - [Live TV streams](#live-tv-streams)
+  - [Piped data](#piped-data)
+- [Queue mode](#queue-mode)
+  - [Per-item duration](#per-item-duration)
+  - [Playlist files](#playlist-files)
+- [Supported devices](#supported-devices)
+- [CLI reference](#cli-reference)
+- [Python API](#python-api)
+  - [One-shot casting](#one-shot-casting)
+  - [Queue-based playback](#queue-based-playback)
+  - [Example: morning TV schedule](#example-morning-tv-schedule)
+- [Use cases](#use-cases)
+- [FAQ](#faq)
+- [How it works](#how-it-works)
+- [YouTube notes](#youtube-notes)
+  - [YouTube blocking yt-dlp](#youtube-blocking-yt-dlp)
+  - [Non-YouTube sites](#non-youtube-sites)
+- [Upcoming features](#upcoming-features)
+- [License](#license)
+- [How did this come about?](#how-did-this-come-about)
+- [Related projects](#related-projects)
+- [See also](#see-also)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 ## The problem
 
 Almost every TV made in the last decade can receive cast streams. But what they'll *accept* varies:
