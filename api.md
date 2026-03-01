@@ -65,6 +65,7 @@ Cast one or more sources and block until playback finishes or `KeyboardInterrupt
 | `cookies_from_browser`| `str \| None`             | `None`  | Browser name to extract cookies from (e.g. `"chrome"`). |
 | `preroll`             | `float`                   | `0`     | Seconds of placeholder to show before the first item. |
 | `placeholder_time`    | `float`                   | `0`     | Minimum placeholder duration between segments.   |
+| `youtube_default`     | `bool`                    | `False` | Use YouTube's default muxed stream instead of DASH (lower latency, may be lower quality). |
 
 Source strings follow the same syntax as the CLI:
 
@@ -102,6 +103,7 @@ Create a programmatic queue. Build up items with `add()`, then call `play()`.
 | `save_stream`         | `str \| None`          | `None`  | File path to save raw stream (MPEG-TS).          |
 | `preroll`             | `float`                | `0`     | Seconds of placeholder before the first item.    |
 | `placeholder_time`    | `float`                | `0`     | Minimum placeholder duration between segments.   |
+| `youtube_default`     | `bool`                 | `False` | Use YouTube's default muxed stream instead of DASH (lower latency, may be lower quality). |
 
 ### Adding items
 

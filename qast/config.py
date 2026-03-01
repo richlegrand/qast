@@ -34,8 +34,11 @@ MAX_BUFFER_LEAD = 10            # max seconds of content-time ahead of TV playba
 # ── Aspect ratio correction ──
 ASPECT: float = 1.0  # 1.0=no change, >1.0=wider, <1.0=narrower
 
+# ── YouTube format mode ──
+YOUTUBE_DEFAULT: bool = False  # True = use single muxed stream, skip DASH+audio download
+
 # ── Timeouts (seconds) ──
-DISCOVERY_TIMEOUT = 15
+DISCOVERY_TIMEOUT = 5
 CAST_CONNECT_TIMEOUT = 60
 YTDLP_TIMEOUT = 30
 BUFFER_FILL_TIMEOUT = 60
@@ -47,6 +50,7 @@ YTDLP_FORMAT = (
     "/b[ext=mp4]"
     "/b"
 )
+YTDLP_FORMAT_DEFAULT = "b[ext=mp4]/b"  # single muxed stream (lower latency)
 
 # ── HTTP server ──
 HTTP_BIND = "0.0.0.0"

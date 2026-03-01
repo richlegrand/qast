@@ -69,6 +69,7 @@ def main() -> None:
     args = parse_args()
     setup_logging(verbose=args.verbose)
     config.ASPECT = args.aspect
+    config.YOUTUBE_DEFAULT = args.youtube_default
 
     print("Scanning for devices...")
     devices = discover_all(show_all=args.show_all)

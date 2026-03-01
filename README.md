@@ -305,7 +305,9 @@ Capture:
   --no-cursor               Hide mouse cursor in screen capture
 
 Other:
-  --aspect                  Squish or stretch content. 1.0 default, >1.0 stretches, 
+  --youtube-default         Use YouTube's default muxed stream instead of DASH
+                            (lower latency, may be lower quality)
+  --aspect                  Squish or stretch content. 1.0 default, >1.0 stretches,
                             <1.0 squishes
   --cookies-from-browser B  Extract cookies from browser (B=chrome, firefox, brave, edge,
                             or safari) — helps when YouTube blocks yt-dlp extraction
@@ -443,11 +445,20 @@ Make sure your TV and computer are on the same network/VLAN. Try `qast -v` to se
 
 **Does Roku require anything extra?**
 
-Yes — install the free [Media Assistant](https://channelstore.roku.com/details/782875) app from the Roku Channel Store, and enable "Control by mobile apps" in Settings > System > Advanced.
+Yes — install the free [Media Assistant](https://channelstore.roku.com/details/782875) app from the Roku Channel Store.
+
+**My TV cuts off the beginning of the stream**
+
+Some DLNA TVs consume and discard the first chunk of data when they connect — probing the format before they start rendering. This means the first few seconds of your video get eaten, and it can also disrupt the audio/video sync that follows. The `--preroll` flag works around this by inserting a placeholder video (a title card) at the start of the stream. The TV chews through the placeholder instead of your content. Start with `--preroll 5` and increase until you see the placeholder appear on screen — that means the TV is past its probe phase and your real content will play from the beginning. Some TVs need 30 seconds or more. Once you know how much preroll your TV needs, you can add it to all qast calls.
+
+```bash
+qast --preroll 30 "https://youtube.com/watch?v=..."
+```
 
 **Why am I seeing several seconds of latency?**
 
 Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop where latency matters most, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example). I'd like to improve this.
+
 
 ## How it works
  
@@ -464,6 +475,42 @@ Practically all TVs want to buffer a few seconds of data before starting to rend
 7. **Serve** — The TV connects and qast streams the buffer contents over HTTP.
 
 See [architecture.md](architecture.md) for details.
+
+## YouTube notes
+
+By default, qast asks yt-dlp for separate DASH video and audio streams when resolving YouTube URLs. DASH streams are higher quality — YouTube serves its best resolutions and bitrates this way, while muxed (combined) streams typically cap at 720p. The downside is that ffmpeg receives two HTTP inputs (one video, one audio), and there's a long-standing ffmpeg bug where multiple HTTP inputs can cause audio truncation or desync.
+
+To work around this, qast downloads the audio stream to a small temp file (~1-2 MB) before handing it to ffmpeg. This way ffmpeg only has one HTTP input (video) and one local file (audio), which avoids the bug. The audio download is fast and the temp file is cleaned up automatically. If the download times out or fails, qast falls back to a single muxed stream automatically.
+
+If you'd rather skip the DASH path entirely and use YouTube's default muxed stream (lower latency, simpler, but potentially lower resolution), use:
+
+```bash
+qast --youtube-default "https://youtube.com/watch?v=..."
+```
+
+Or via the Python API:
+
+```python
+cast("https://youtube.com/watch?v=...", device=0, youtube_default=True)
+```
+
+### YouTube blocking yt-dlp
+
+YouTube periodically changes its player internals to break yt-dlp extraction. When this happens you'll see errors like "Sign in to confirm you're not a bot" or "Unable to extract" in yt-dlp's output. Two things help:
+
+1. **Update yt-dlp** — the yt-dlp maintainers typically push fixes within days. Run `pip install -U yt-dlp`.
+2. **Use browser cookies** — passing `--cookies-from-browser chrome` (or `firefox`, `brave`, `edge`, `safari`) lets yt-dlp use your logged-in YouTube session, which bypasses most bot detection. This is often the only fix until yt-dlp pushes an update.
+
+```bash
+qast --cookies-from-browser chrome "https://youtube.com/watch?v=..."
+```
+
+Note that cookie extraction reads from your browser's cookie store — it does not modify anything.
+
+### Non-YouTube sites
+
+yt-dlp supports [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md). For most of these, qast receives a single muxed URL and no audio download is needed. The DASH splitting behavior is specific to YouTube (and a few other sites that use DASH). If yt-dlp fails entirely for a given URL, qast passes the raw URL directly to ffmpeg as a last resort — this works surprisingly often for direct video links.
+
 
 ## Upcoming features
 

@@ -135,6 +135,7 @@ def cast(
     cookies_from_browser: str | None = None,
     preroll: float = 0,
     placeholder_time: float = 0,
+    youtube_default: bool = False,
 ) -> None:
     """One-shot cast. Blocks until playback finishes or KeyboardInterrupt.
 
@@ -147,7 +148,9 @@ def cast(
         no_placeholder: Skip loading/up-next screens.
         cookies_from_browser: Browser to extract cookies from.
         placeholder_time: Minimum placeholder duration between segments.
+        youtube_default: Use YouTube's default muxed stream instead of DASH.
     """
+    config.YOUTUBE_DEFAULT = youtube_default
     device = _resolve_device(device)
     urls = [source] if isinstance(source, str) else list(source)
 
@@ -200,7 +203,9 @@ class Qast:
         save_stream: str | None = None,
         preroll: float = 0,
         placeholder_time: float = 0,
+        youtube_default: bool = False,
     ) -> None:
+        config.YOUTUBE_DEFAULT = youtube_default
         self._device = _resolve_device(device)
         self._cookies_from_browser = cookies_from_browser
         self._save_stream = save_stream

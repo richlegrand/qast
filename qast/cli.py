@@ -23,6 +23,7 @@ class Args:
     duration: str | None
     playlist: str | None
     aspect: float
+    youtube_default: bool
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -110,6 +111,12 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="Aspect ratio correction: 1.0=no change, >1.0=wider, <1.0=narrower",
     )
     parser.add_argument(
+        "--youtube-default",
+        action="store_true",
+        default=False,
+        help="Use YouTube's default muxed stream instead of DASH (lower latency, may be lower quality)",
+    )
+    parser.add_argument(
         "--show-all",
         action="store_true",
         default=False,
@@ -133,4 +140,5 @@ def parse_args(argv: list[str] | None = None) -> Args:
         duration=ns.duration,
         playlist=ns.playlist,
         aspect=ns.aspect,
+        youtube_default=ns.youtube_default,
     )

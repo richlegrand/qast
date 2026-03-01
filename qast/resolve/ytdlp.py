@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 
-from ..config import YTDLP_FORMAT, YTDLP_TIMEOUT
+from .. import config
 from ..log import get_logger
 
 log = get_logger("resolve")
@@ -64,20 +64,20 @@ def resolve(url: str, cookies_from_browser: str | None = None) -> ResolvedURL | 
         cmd = [
             "yt-dlp", "-j", "--no-playlist",
             "--remote-components", "ejs:github",
-            "-f", YTDLP_FORMAT,
+            "-f", config.YTDLP_FORMAT_DEFAULT if config.YOUTUBE_DEFAULT else config.YTDLP_FORMAT,
         ]
         if cookies_from_browser:
             cmd += ["--cookies-from-browser", cookies_from_browser]
         cmd.append(url)
         result = subprocess.run(
             cmd,
-            capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
+            capture_output=True, text=True, timeout=config.YTDLP_TIMEOUT,
         )
     except FileNotFoundError:
         log.error("yt-dlp not found — install with: pip install yt-dlp")
         return None
     except subprocess.TimeoutExpired:
-        log.warning("yt-dlp timed out after %ds", YTDLP_TIMEOUT)
+        log.warning("yt-dlp timed out after %ds", config.YTDLP_TIMEOUT)
         return None
 
     if result.returncode != 0:
@@ -172,7 +172,7 @@ def _fallback_to_muxed(resolved: ResolvedURL) -> None:
         result = subprocess.run(
             ["yt-dlp", "-j", "--no-playlist", "-f", "b[ext=mp4]/b",
              resolved._original_url],
-            capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
+            capture_output=True, text=True, timeout=config.YTDLP_TIMEOUT,
         )
         if result.returncode == 0:
             info = json.loads(result.stdout)
