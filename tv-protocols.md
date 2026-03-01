@@ -103,22 +103,20 @@ The DLNA flags in the protocolInfo fourth field should match the flags sent in t
 
 #### DLNA flags breakdown
 
-The flags string `DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0D700000000000000000000000000000` means:
+The flags string `DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000` means:
 
 - **OP=00**: No seek support (neither time-based nor byte-based). Correct for a forward-only stream.
-- **CI=0**: Content is not transcoded at the DLNA level (the TV doesn't need to know we transcode internally).
-- **FLAGS=0D700000...**: Bitmask (128-bit, first 32 bits matter):
+- **CI=1**: Content is transcoded. Tells the renderer the stream has been converted from its original format (which it has — qast always transcodes to H.264/AAC).
+- **FLAGS=01700000...**: Bitmask (128-bit, first 32 bits matter):
 
 | Bit | Hex | Flag | Set? |
 |-----|-----|------|------|
-| 27 | 0x08000000 | s0_increasing (start position advancing = live) | Yes |
-| 26 | 0x04000000 | sN_increasing (end position advancing = live) | Yes |
 | 24 | 0x01000000 | streaming_transfer_mode | Yes |
 | 22 | 0x00400000 | background_transfer_mode | Yes |
 | 21 | 0x00200000 | connection_stalling | Yes |
 | 20 | 0x00100000 | DLNA v1.5 | Yes |
 
-The s0/sN_increasing flags are the DLNA way of saying "this is live content" — they should suppress seek bars on compliant renderers.
+The s0/sN_increasing flags (bits 27-26, the DLNA "live content" indicators) are not set — in practice they caused some renderers to behave unpredictably. The `videoBroadcast` upnp:class in the DIDL-Lite metadata serves the same purpose of signaling live/streaming content.
 
 #### HTTP server requirements
 DLNA renderers expect specific HTTP headers on the stream response:

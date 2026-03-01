@@ -430,7 +430,7 @@ s.position            # 45.3 (seconds elapsed)
 s.queue               # ["workout.mp4", "another.mp4"]
 ```
 
-### Example: morning TV schedule
+### Example: scheduled casting
 
 ```python
 from qast import Qast
@@ -446,7 +446,7 @@ def morning():
 
 def afternoon():
     q.stop()
-    q.add_screen()
+    q.add("screen") # cast screen/desktop, not sure why...
     q.play()
 
 schedule.every().day.at("08:00").do(morning)
@@ -571,7 +571,7 @@ MIT
 
 ## How did this come about?
 
-Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were invisible to Chrome despite being stream capable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor with setting up is high.
+Our office has TVs of various types. During the Winter Olympics I had mixed results casting live feeds from my browser — sometimes it would work, sometimes not, and some TVs were invisible to Chrome despite being capable of streaming. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
