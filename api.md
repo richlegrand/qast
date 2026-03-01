@@ -93,60 +93,34 @@ cast(["a.mp4", "b.mp4", "c.mp4"], device="roku", repeat=True, shuffle=True)
 
 ### `Qast(device, ...) -> Qast`
 
-Create a programmatic queue. Build up items with `add*()` methods, then call `play()`.
+Create a programmatic queue. Build up items with `add()`, then call `play()`.
 
 | Parameter             | Type                   | Default | Description                                      |
 |-----------------------|------------------------|---------|--------------------------------------------------|
 | `device`              | `Device \| str \| int` | —       | Target device.                                   |
-| `cookies_from_browser`| `str \| None`          | `None`  | Browser to extract cookies from.                 |
+| `cookies_from_browser`| `str \| None`          | `None`  | Browser to extract cookies from (e.g. "chrome").                 |
 | `save_stream`         | `str \| None`          | `None`  | File path to save raw stream (MPEG-TS).          |
 | `preroll`             | `float`                | `0`     | Seconds of placeholder before the first item.    |
 | `placeholder_time`    | `float`                | `0`     | Minimum placeholder duration between segments.   |
 
 ### Adding items
 
-All `add*()` methods can be called before or after `play()`. Items added after `play()` will be picked up on the next loop iteration (when `repeat=True`).
+`add()` can be called before or after `play()`. Items added after `play()` will be picked up on the next loop iteration (when `repeat=True`).
 
-#### `q.add(url, duration=None, placeholder=True)`
+#### `q.add(source, duration=None, placeholder=True)`
 
-Add a URL or local file path.
-
-```python
-q.add("https://www.youtube.com/watch?v=dQw4w9WgXcQ", duration=30)
-q.add("/home/user/video.mp4")
-```
-
-#### `q.add_screen(duration=None, placeholder=True)`
-
-Add screen capture.
+Add a source to the queue. Uses the same source syntax as the CLI.
 
 ```python
-q.add_screen(duration=60)
+q.add("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+q.add("/home/user/video.mp4", duration=30)
+q.add("screen@60s")
+q.add("webcam", duration=15)
+q.add("window:Firefox@30s")
+q.add("browser:https://grafana.local/dashboard", duration=60)
 ```
 
-#### `q.add_window(title, duration=None, placeholder=True)`
-
-Add window capture by title (substring match).
-
-```python
-q.add_window("Firefox", duration=30)
-```
-
-#### `q.add_webcam(duration=None, placeholder=True)`
-
-Add webcam capture.
-
-```python
-q.add_webcam(duration=15)
-```
-
-#### `q.add_browser(url, duration=None, placeholder=True)`
-
-Add headless browser capture of a URL.
-
-```python
-q.add_browser("https://grafana.local/dashboard", duration=60)
-```
+Inline durations (`screen@30s`) work; the `duration` parameter is a fallback when no inline duration is present.
 
 ### Playback control
 
@@ -226,10 +200,10 @@ q = Qast(device="roku", cookies_from_browser="chrome")
 
 q.add("https://www.youtube.com/watch?v=PwylW_sUfQY", duration=15)
 q.add("https://www.youtube.com/watch?v=aOAzJ37Nxfw", duration=15)
-q.add_screen(duration=15)
-q.add_window("sublime", duration=15)
-q.add_browser("pixycam.com", duration=15)
-q.add_webcam(duration=15)
+q.add("screen", duration=15)
+q.add("window:sublime", duration=15)
+q.add("browser:pixycam.com", duration=15)
+q.add("webcam", duration=15)
 
 q.play(repeat=True)
 

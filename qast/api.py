@@ -222,52 +222,20 @@ class Qast:
 
     def add(
         self,
-        url: str,
+        source: str,
         duration: float | None = None,
         placeholder: bool = True,
     ) -> None:
-        """Add a URL to the queue."""
-        self._ensure_queue().add_item(QueueItem(
-            url=url, duration=duration,
-            show_placeholder=placeholder,
-        ))
+        """Add a source to the queue.
 
-    def add_screen(
-        self, duration: float | None = None, placeholder: bool = True,
-    ) -> None:
-        """Add screen capture to the queue."""
-        self._ensure_queue().add_item(QueueItem(
-            capture="screen", duration=duration,
-            show_placeholder=placeholder, title="Screen Capture",
-        ))
-
-    def add_window(
-        self, title: str, duration: float | None = None, placeholder: bool = True,
-    ) -> None:
-        """Add window capture by title to the queue."""
-        self._ensure_queue().add_item(QueueItem(
-            capture="window", window_title=title,
-            duration=duration, show_placeholder=placeholder,
-            title=f"Window: {title}",
-        ))
-
-    def add_webcam(
-        self, duration: float | None = None, placeholder: bool = True,
-    ) -> None:
-        """Add webcam capture to the queue."""
-        self._ensure_queue().add_item(QueueItem(
-            capture="webcam", duration=duration,
-            show_placeholder=placeholder, title="Webcam",
-        ))
-
-    def add_browser(
-        self, url: str, duration: float | None = None, placeholder: bool = True,
-    ) -> None:
-        """Add browser capture (headless Chromium rendering a URL) to the queue."""
-        self._ensure_queue().add_item(QueueItem(
-            capture="browser", url=url, duration=duration,
-            show_placeholder=placeholder, title=url,
-        ))
+        Uses the same source syntax as the CLI: URLs, file paths,
+        ``screen``, ``webcam``, ``window:Title``, ``browser:https://...``.
+        Inline durations (``screen@30s``) are supported; the *duration*
+        parameter acts as a fallback when no inline duration is present.
+        """
+        item = parse_source(source, global_duration=duration)
+        item.show_placeholder = placeholder
+        self._ensure_queue().add_item(item)
 
     def play(self, repeat: bool = False, show_placeholder: bool = True,
              verbose: bool = False) -> None:
