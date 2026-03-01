@@ -6,10 +6,26 @@ import sys
 
 
 def tty_input(prompt: str = "") -> str:
-    """Like input(), but reads from /dev/tty when stdin is not a terminal."""
+    """Like input(), but reads from /dev/tty when stdin is not a terminal.
+
+    When stdin is piped, opens /dev/tty directly and ensures echo is enabled
+    (an upstream process like ffmpeg may have disabled it).
+    """
     if sys.stdin.isatty():
         return input(prompt)
+    import termios
     with open("/dev/tty") as tty:
-        if prompt:
-            print(prompt, end="", flush=True)
-        return tty.readline().rstrip("\n")
+        fd = tty.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            # Restore sane terminal modes — upstream ffmpeg may have
+            # disabled echo, canonical mode, and CR→NL translation.
+            new = termios.tcgetattr(fd)
+            new[0] |= termios.ICRNL    # iflag: CR → NL
+            new[3] |= termios.ECHO | termios.ICANON  # lflag: echo + line mode
+            termios.tcsetattr(fd, termios.TCSANOW, new)
+            if prompt:
+                print(prompt, end="", flush=True)
+            return tty.readline().rstrip("\n")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)

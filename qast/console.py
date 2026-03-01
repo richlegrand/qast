@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import select
 import sys
 import termios
@@ -111,39 +112,43 @@ class Console:
             sys.stdout.flush()
 
             while not self._stop.is_set():
-                # Poll stdin with timeout so we can check _stop
-                if not select.select([sys.stdin], [], [], 0.2)[0]:
+                # Poll fd with timeout so we can check _stop
+                if not select.select([fd], [], [], 0.2)[0]:
                     continue
-                ch = sys.stdin.read(1)
-                if not ch:
+                # Read all available bytes directly from the fd —
+                # bypasses Python's internal buffer so select() stays
+                # in sync (fixes paste appearing one char at a time).
+                data = os.read(fd, 1024)
+                if not data:
                     break
 
-                if ch in ("\n", "\r"):
-                    with self._lock:
-                        line = self._input_buf
-                        self._input_buf = ""
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
-                    if line:
-                        self._handle_command(line)
-                    else:
-                        sys.stdout.write("> ")
+                for ch in data.decode(errors="replace"):
+                    if ch in ("\n", "\r"):
+                        with self._lock:
+                            line = self._input_buf
+                            self._input_buf = ""
+                        sys.stdout.write("\n")
                         sys.stdout.flush()
-                elif ch in ("\x7f", "\x08"):  # backspace
-                    with self._lock:
-                        if self._input_buf:
-                            self._input_buf = self._input_buf[:-1]
-                            sys.stdout.write("\b \b")
+                        if line:
+                            self._handle_command(line)
+                        else:
+                            sys.stdout.write("> ")
                             sys.stdout.flush()
-                elif ch == "\x03":  # Ctrl-C
-                    sys.stdout.write("\n")
-                    self._pipeline.shutdown()
-                    break
-                elif ch >= " ":  # printable
-                    with self._lock:
-                        self._input_buf += ch
-                    sys.stdout.write(ch)
-                    sys.stdout.flush()
+                    elif ch in ("\x7f", "\x08"):  # backspace
+                        with self._lock:
+                            if self._input_buf:
+                                self._input_buf = self._input_buf[:-1]
+                                sys.stdout.write("\b \b")
+                                sys.stdout.flush()
+                    elif ch == "\x03":  # Ctrl-C
+                        sys.stdout.write("\n")
+                        self._pipeline.shutdown()
+                        return
+                    elif ch >= " ":  # printable
+                        with self._lock:
+                            self._input_buf += ch
+                        sys.stdout.write(ch)
+                        sys.stdout.flush()
         finally:
             self._restore_termios()
 

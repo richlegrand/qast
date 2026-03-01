@@ -43,6 +43,7 @@ class SegmentBase:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
         )
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
@@ -129,8 +130,27 @@ class SegmentFFmpeg(SegmentBase):
         self.aspect = aspect
         self.has_audio = has_audio
 
+    def start(self) -> None:
+        if "pipe:0" in self.source_urls:
+            # Must inherit parent's stdin so ffmpeg can read piped data.
+            # -nostdin in the command prevents ffmpeg's interactive reader
+            # from competing with the demuxer for stdin bytes.
+            cmd = self._build_cmd()
+            log.info("%s: %s", self._log_name, " ".join(cmd))
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self._stderr_thread = threading.Thread(
+                target=self._drain_stderr, daemon=True,
+            )
+            self._stderr_thread.start()
+        else:
+            super().start()
+
     def _build_cmd(self) -> list[str]:
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
+        cmd = ["ffmpeg", "-y", "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats"]
 
         if self.is_live:
             cmd += ["-re"]

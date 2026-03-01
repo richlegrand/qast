@@ -93,6 +93,7 @@ def main() -> None:
         preroll = parse_duration(args.preroll) if args.preroll else 0
         placeholder_time = parse_duration(args.placeholder_time) if args.placeholder_time else 0
 
+        first_resolved = None
         if args.urls == ["-"]:
             # Stdin pipe mode — read MPEG-TS from stdin
             pipeline = Pipeline(
@@ -102,7 +103,7 @@ def main() -> None:
                 verbose=verbose, preroll=preroll,
                 placeholder_time=placeholder_time,
             )
-            segment = SegmentFFmpeg(["pipe:0"], aspect=config.ASPECT)
+            segment = SegmentFFmpeg(["pipe:0"], aspect=config.ASPECT, has_audio=False)
             if verbose:
                 print("Reading from stdin...")
             pipeline.start_capture(segment, title=_stdin_peer_name())
@@ -164,14 +165,6 @@ def main() -> None:
             # Eagerly resolve the first item so the user sees progress
             print("Resolving...")
             first_resolved = queue.resolve_next()
-            if first_resolved and first_resolved.title:
-                print(f"Playing: {first_resolved.title}", end="")
-                if first_resolved.duration:
-                    mins, secs = divmod(int(first_resolved.duration), 60)
-                    print(f"  ({mins}:{secs:02d})", end="")
-                print()
-                if first_resolved.is_live:
-                    print("  Live stream detected.")
 
             if verbose:
                 print(f"Starting pipeline with {len(items)} items...")
@@ -205,6 +198,15 @@ def main() -> None:
         pipeline.clear_disconnect()
 
         print(f"Streaming to {device.name}")
+
+        if first_resolved and first_resolved.title:
+            print(f"Playing: {first_resolved.title}", end="")
+            if first_resolved.duration:
+                mins, secs = divmod(int(first_resolved.duration), 60)
+                print(f"  ({mins}:{secs:02d})", end="")
+            print()
+            if first_resolved.is_live:
+                print("  Live stream detected.")
 
         # Start interactive console (after all setup prints are done)
         if sys.stdin.isatty():

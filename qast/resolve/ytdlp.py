@@ -203,6 +203,21 @@ def resolve_source(
     Always returns a ResolvedURL — never None.
     """
     log.info("Resolving: %s", url)
+
+    # Local files go straight to ffmpeg — no yt-dlp needed.
+    if os.path.isfile(url):
+        media_duration = probe_duration(url)
+        if duration is not None:
+            media_duration = duration
+        fallback_title = title or os.path.basename(url)
+        return ResolvedURL(
+            title=fallback_title,
+            duration=media_duration,
+            is_live=False,
+            source_urls=[url],
+            has_audio=False,
+        )
+
     resolved = resolve(url, cookies_from_browser=cookies_from_browser)
     if resolved:
         download_audio(resolved)
@@ -216,12 +231,9 @@ def resolve_source(
                     "Try --cookies-from-browser chrome", url)
     else:
         log.warning("Failed to resolve %s, using raw URL", url)
-    media_duration = probe_duration(url) if os.path.isfile(url) else None
-    if duration is not None:
-        media_duration = duration
-    fallback_title = title or (os.path.basename(url) if os.path.isfile(url) else url)
+    media_duration = duration
     return ResolvedURL(
-        title=fallback_title,
+        title=title or url,
         duration=media_duration,
         is_live=False,
         source_urls=[url],

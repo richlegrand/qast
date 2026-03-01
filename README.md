@@ -145,29 +145,31 @@ The `-` tells qast to read from stdin. This makes qast composable with any tool 
 
 **Audio visualizer from system audio:**
 ```bash
-ffmpeg -f pulse -i $(pactl get-default-sink).monitor \
-  -filter_complex "showwaves=s=1920x1080:mode=cline:colors=white" \
-  -f mpegts - | qast -
+ffmpeg -loglevel quiet -f pulse -i $(pactl get-default-sink).monitor \
+-filter_complex "[0:a]showcqt=s=1920x1080:axis_h=0:bar_g=2:count=6[v]" \
+-map "[v]" -f mpegts - | qast -
 ```
-Your music as a real-time waveform on your TV.
+
+Your music as a real-time frequency-based waterfall graph on your TV. ffmpeg has lots of this kind of stuff. 
 
 **Security cam grid:**
 ```bash
-ffmpeg -i rtsp://cam1 -i rtsp://cam2 -i rtsp://cam3 -i rtsp://cam4 \
+ffmpeg -loglevel quiet -i rtsp://cam1 -i rtsp://cam2 -i rtsp://cam3 -i rtsp://cam4 \
   -filter_complex "[0:v][1:v]hstack[top];[2:v][3:v]hstack[bottom];[top][bottom]vstack" \
   -f mpegts - | qast -
 ```
-4 cameras on 1 TV. No NVR required.
+4 cameras on 1 TV, no NVR needed.
+
+**Test pattern:**
+
+```bash
+ffmpeg -loglevel quiet -f lavfi -i "testsrc2=size=1920x1080:rate=30" -f mpegts - | qast -
+```
 
 **Generative art from Python:**
 ```bash
 python my_visualizer.py | ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 30 -i - \
   -f mpegts - | qast -
-```
-
-**Test pattern:**
-```bash
-ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=30" -f mpegts - | qast -
 ```
 
 ## Queue mode
@@ -453,6 +455,7 @@ See [architecture.md](architecture.md) for details.
 - **Multi-device casting** — cast the same stream to multiple TVs simultaneously (`qast -d "Living Room" -d "Kitchen" video.mp4`)
 - **Subtitles** — burn subtitles into the video stream via ffmpeg
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
+- **Audio with visualization** — render audio only files with graphical visualization
 - **Overlay/watermark** — add a visible overlay (aka watermark) to the video stream
 - **Windows support**
 - **macOS support (screen capture to come later)**
@@ -463,11 +466,11 @@ MIT
 
 ## How did this come about?
 
-Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were invisible to Chrome despite being stream capable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor is high.
+Our office has TVs of various types. During the Winter Olympics I had mixed results casting the live feed from my browser — sometimes it would work, sometimes not, and some TVs were invisible to Chrome despite being stream capable. In the past our business has sought ways to display live numbers on TVs — user counts, sales figures, that sort of thing. We have Raspberry Pis, and that's a solution, but the pain factor with setting up is high.
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Of course being a big ol nerd, it got me thinking -- could you make a streamer that's both video source and TV agnostic? And thus qast was born. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Being a big ol nerd, it got me thinking -- could you make a streamer that's agnostic to both the video source/format and the TV type? And thus qast was born. I hope others find this tool useful. 
 
 qast is pronounced "cast". The q is for queue -- play a queue of varied content back-to-back. (And everyone knows replacing a c with q makes anything sound cooler.) 
 

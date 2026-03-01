@@ -43,7 +43,7 @@ class PlaceholderSegment(SegmentBase):
         )
 
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
+            "ffmpeg", "-y", "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats",
             "-f", "lavfi", "-i", video_input,
             "-f", "lavfi", "-i", audio_input,
         ]
@@ -80,6 +80,7 @@ class PlaceholderSegment(SegmentBase):
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
         )
 
         # Quick check: if ffmpeg exits immediately, drawtext probably failed
@@ -107,6 +108,7 @@ class PlaceholderSegment(SegmentBase):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
             )
             self._stderr_thread = __import__("threading").Thread(
                 target=self._drain_stderr, daemon=True,
