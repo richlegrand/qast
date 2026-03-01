@@ -33,24 +33,32 @@ qast sidesteps the compatibility problem entirely. Practically all TVs accept ei
 ## Install
 
 ```bash
-pip install qast
+pip install qast[all]   # recommended: includes yt-dlp, Chromecast, and browser capture
+pip install qast        # core only: local files, screen/webcam/window capture, piped data
 ```
 
 ### Requirements
 
-- Python 3.10+
-- ffmpeg
+- Python 3.8+
+- [ffmpeg](https://www.ffmpeg.org/) — transcoding and capture
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) (strongly recommended)
 
 ```bash
 # Ubuntu/Debian
 sudo apt install ffmpeg
+pip install yt-dlp      # or: included in qast[all]
 ```
 
-### Optional
+### Optional extras
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) (strongly recommended)
-- [pychromecast](https://github.com/home-assistant-libs/pychromecast) — for Chromecast/Google TV support
-- [Playwright](https://playwright.dev/python/) — for `browser:` source (`pip install playwright && playwright install chromium`)
+| Extra        | What it adds                                                        |
+|--------------|---------------------------------------------------------------------|
+| `qast[ytdlp]`      | [yt-dlp](https://github.com/yt-dlp/yt-dlp) — YouTube and [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) |
+| `qast[chromecast]`  | [pychromecast](https://github.com/home-assistant-libs/pychromecast) — Chromecast/Google TV support |
+| `qast[browser]`     | [Playwright](https://playwright.dev/python/) — `browser:` capture (also run `playwright install chromium`) |
+| `qast[all]`         | All of the above                                                    |
+
+Optional system packages:
 - xdotool — for `window` source on Linux (`apt install xdotool`)
 
 ## Quick start
@@ -150,7 +158,7 @@ ffmpeg -loglevel quiet -f pulse -i $(pactl get-default-sink).monitor \
 -map "[v]" -f mpegts - | qast -
 ```
 
-Your music as a real-time frequency-based waterfall graph on your TV. Note, ffmpeg has lots and lots of this kind of [stuff](https://gist.github.com/yradunchev/1790b8aeffc784debe6479a53613e422). (But still waiting for --flight-simulator and --play-chess... C'mon ffmpeg!)
+Displays your music as a real-time frequency-based waterfall graph on your TV. Note, ffmpeg has lots and lots of these kinds of [visualizations](https://gist.github.com/yradunchev/1790b8aeffc784debe6479a53613e422). (But we're still waiting on --flight-simulator and --play-chess... C'mon ffmpeg!)
 
 **Security cam grid:**
 ```bash
@@ -406,13 +414,13 @@ while True:
 
 ## Use cases
 
-- **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay
-- **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV
-- **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop
-- **Movie marathon** — e.g. queue up the LOTR trilogy
-- **Curated kids content** — queue up kid appropriate content -- YouTube Kids, PBS, etc.
+- **Screen share to any TV** — works even if your TV doesn't support Miracast or AirPlay.
+- **Security cam grid** — compose RTSP feeds with ffmpeg, pipe to TV.
+- **Social gathering** — queue up varied sources from Youtube, Vimeo, Google Drive, Slideshare, and play on a loop.
+- **Movie marathon** — e.g. queue up the LOTR trilogy.
+- **Curated kids content** — queue up appropriate kid content -- YouTube Kids, PBS, etc.
 - **Digital signage** — Show "live" data, sales figures, number of users, company news, promotions, etc.
-- **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) screen wherever
+- **MagicMirror** — cast your [MagicMirror](https://github.com/MagicMirrorOrg/MagicMirror) screen wherever.
 - **Etc** — pipe frames from your custom video source -- art, AI generated content, etc.
 
 ## FAQ

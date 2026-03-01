@@ -54,7 +54,7 @@ def parse_args(argv: list[str] | None = None) -> Args:
     parser.add_argument(
         "--cookies-from-browser",
         metavar="BROWSER",
-        help="Browser to extract cookies from (e.g. chrome, firefox, brave)",
+        help="Browser to extract cookies from (e.g. BROWSER=chrome, firefox, brave, edge, or safari)",
     )
     parser.add_argument(
         "--no-cursor",
