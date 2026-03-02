@@ -87,7 +87,7 @@ class Pipeline:
         self._shutdown_event = threading.Event()
         self._total_audio_samples: int = 0  # cumulative audio samples across all segments
         self._total_video_frames: int = 0   # cumulative video frames across all segments
-        self._placeholder_frames: int = 0   # placeholder frames excluded from throttle lead
+        self._preroll_frames: int = 0        # preroll frames excluded from throttle lead
         self._min_frames: int = 0           # frame threshold for wait_ready
         self._frames_ready = threading.Event()
         # Public state for progress bar / status API
@@ -124,7 +124,7 @@ class Pipeline:
                 return  # Still filling initial buffer — no throttle
         fps = int(config.VIDEO_FPS)
         while True:
-            real_frames = self._total_video_frames - self._placeholder_frames
+            real_frames = self._total_video_frames - self._preroll_frames
             content_time = real_frames / fps
             wall_time = time.monotonic() - frt
             lead = content_time - wall_time
@@ -140,7 +140,7 @@ class Pipeline:
         frt = self.ring_buffer.first_read_time
         if frt is None:
             return None
-        real_frames = self._total_video_frames - self._placeholder_frames
+        real_frames = self._total_video_frames - self._preroll_frames
         content_time = real_frames / int(config.VIDEO_FPS)
         wall_time = time.monotonic() - frt
         return content_time - wall_time
@@ -209,9 +209,11 @@ class Pipeline:
         # producing bogus PTS that corrupt the master muxer's timing.
         self._rewriter.flush()
         ph_frames = self._rewriter.video_frame_count
-        self._placeholder_frames += ph_frames
-        log.info("Placeholder done: %d frames (%.1fs content)",
-                 ph_frames, ph_frames / int(config.VIDEO_FPS))
+        if loading and self._preroll > 0:
+            self._preroll_frames += ph_frames
+        log.info("Placeholder done: %d frames (%.1fs content, preroll=%s)",
+                 ph_frames, ph_frames / int(config.VIDEO_FPS),
+                 loading and self._preroll > 0)
         self._advance_offset()
         # Reset per-item counter so elapsed only reflects real content
         self._item_video_frames = 0
@@ -280,7 +282,6 @@ class Pipeline:
         ph.kill()
         self._rewriter.flush()
         ph_frames = self._rewriter.video_frame_count
-        self._placeholder_frames += ph_frames
         log.info("Buffering placeholder done: %d frames (%.1fs content)",
                  ph_frames, ph_frames / int(config.VIDEO_FPS))
         self._advance_offset()
