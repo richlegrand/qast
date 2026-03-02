@@ -154,7 +154,7 @@ Works if your TV doesn't support Miracast or AirPlay.
 ### A single window
 
 ```bash
-qast window                    # click to select
+qast window                  # click to select
 qast window:Grafana          # by title
 qast window:Grafana@1m       # by title, 1 minute
 ```
@@ -166,7 +166,7 @@ qast browser:https://grafana.example.com/dashboard       # render any URL
 qast browser:https://example.com@5m                      # stop after 5 minutes
 ```
 
-Renders a URL in headless Chromium and casts the result to your TV. Great for dashboards, status pages, or any content that's best viewed as a live webpage rather than a video. Requires [Playwright](https://playwright.dev/python/) (`pip install playwright && playwright install chromium`).
+Renders a URL in headless Chromium and casts the result to your TV. Good for dashboards, status pages, or any content that's best viewed as a live webpage rather than a video. Requires [Playwright](https://playwright.dev/python/) (`pip install playwright && playwright install chromium`).
 
 ### Your webcam
 
@@ -340,7 +340,7 @@ Queue:
   --preroll TIME            Preroll video by the specified time. This is useful for some 
                             TVs that either cut off the beginning of the first segment 
                             or show wait icon because of insufficient buffering.
-  --placeholder-time TIME   Specify amount of time to show placeholders (2s default)                          
+  --placeholder-time TIME   Specify amount of time to show placeholders (2s default)
   --duration TIME           Default duration for sources without @duration 
                             (e.g., 30s, 5m, 1h, 5m30s)  
 
@@ -361,7 +361,7 @@ Other:
   -h, --help                Show help
 ```
 
-During playback, you can type commands (with <CR>):
+During playback, you can type commands into a simple text prompt `>`:
 
 ```
 <source[@duration]>   add a source to the queue (URLs, screen, webcam, etc.)
@@ -492,7 +492,7 @@ Yes — install the free [Media Assistant](https://channelstore.roku.com/details
 
 **My TV cuts off the beginning of the stream**
 
-Some DLNA TVs consume and discard the first chunk of data when they connect — probing the format before they start rendering. This means the first few seconds of your video get eaten, and it can also disrupt the audio/video sync that follows. The `--preroll` flag works around this by inserting a placeholder video (a title card) at the start of the stream. The TV chews through the placeholder instead of your content. Start with `--preroll 5` and increase until you see the placeholder appear on screen — that means the TV is past its probe phase and your real content will play from the beginning. Some TVs need 30 seconds or more. Once you know how much preroll your TV needs, you can add it to all qast calls.
+Some DLNA TVs consume and discard the first chunk of data when they connect — probing the format before they start rendering. This means the first few seconds of your video get eaten, and it can also disrupt the audio/video sync that follows. The `--preroll` flag works around this by inserting a placeholder video (a title card) at the start of the stream. The TV chews through the placeholder instead of your content. Start with `--preroll 5` and increase until you see the placeholder appear on screen — that means the TV is past its probe phase and your real content will play from the beginning. Some TVs need 30 seconds or more. Once you know how much preroll your TV needs, you can add the preroll amount to your qast calls.
 
 ```bash
 qast --preroll 30 "https://youtube.com/watch?v=..."
@@ -500,7 +500,7 @@ qast --preroll 30 "https://youtube.com/watch?v=..."
 
 **Why am I seeing several seconds of latency?**
 
-Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop where latency matters most, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example). I'd like to improve this.
+Practically all TVs want to buffer a few seconds of data before starting to render frames, which leads to latencies. For live streams such as webcam or computer desktop where latency matters most, you might see up to a 10 second lag from when you move your mouse and when you see it on your TV (for example). 
 
 
 ## How it works
