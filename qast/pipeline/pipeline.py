@@ -12,6 +12,7 @@ PTS offsets use exact 90 kHz integer ticks — no float-based computation.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -567,6 +568,17 @@ class Pipeline:
         if item.capture == "screen":
             return ScreenSegment(cursor=item.cursor, duration=item.duration)
         elif item.capture == "window":
+            if os.name == "nt":
+                if not item.window_title:
+                    raise SystemExit(
+                        "On Windows, interactive window selection is not supported. "
+                        "Use window:<title>."
+                    )
+                return ScreenSegment(
+                    cursor=item.cursor,
+                    window_title=item.window_title,
+                    duration=item.duration,
+                )
             if item.window_title:
                 wid, w, h = _find_window_by_title(item.window_title)
             else:

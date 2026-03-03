@@ -1,0 +1,20 @@
+/* qast site — supplemental styles (Tailwind CDN handles layout) */
+
+:root {
+  --q-bg: #f8faf9;
+  --q-surface: #ffffff;
+  --q-border: #d4ddd8;
+  --q-text: #1f2b24;
+  --q-muted: #5c6e63;
+}
+html.dark {
+  --q-bg: #0b1110;
+  --q-surface: #111c18;
+  --q-border: #2d4a3f;
+  --q-text: #e6f2eb;
+  --q-muted: #9eb8ad;
+}
+body {
+  background-color: var(--q-bg);
+  color: var(--q-text);
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Local Deployment</title>
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <strong>qast docs</strong>
+    <div class="top-actions">
+      <span class="stars">GitHub Stars <strong id="github-stars-count">87</strong></span>
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Documentation</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Getting Started</a>
+      <a href="/docs/cli.html">CLI Guide</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <a href="/docs/deploy-local.html">Local Deployment</a>
+    </aside>
+    <main>
+      <h1>Local Deployment</h1>
+      <p>Serve the marketing site, docs, and local admin UI from one process.</p>
+      <h2>Run server</h2>
+      <pre><code>qast-ui --host 0.0.0.0 --port 8787</code></pre>
+      <h2>Routes</h2>
+      <ul>
+        <li><code>/</code> - public site (production target: <code>qast.nuts.services</code>)</li>
+        <li><code>/docs</code> - docs portal</li>
+        <li><code>/admin</code> - local admin UI</li>
+        <li><code>/api/health</code> - status endpoint</li>
+        <li><code>/api/ui-targets</code> - route metadata</li>
+      </ul>
+      <h2>Deploy notes</h2>
+      <ul>
+        <li>For public hosting, route <code>qast.nuts.services</code> to <code>/</code>.</li>
+        <li>Keep <code>/admin</code> local-only or behind auth/VPN.</li>
+        <li>Link docs from site nav and from your GitHub README.</li>
+      </ul>
+      <p class="credit">Created by Rich LeGrand.</p>
+    </main>
+  </div>
+</body>
+</html>

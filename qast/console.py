@@ -5,10 +5,15 @@ from __future__ import annotations
 import os
 import select
 import sys
-import termios
 import threading
-import tty
 from typing import TYPE_CHECKING
+
+try:
+    import termios
+    import tty as tty_mod
+except ModuleNotFoundError:  # Windows
+    termios = None
+    tty_mod = None
 
 from .log import get_logger
 from .source import parse_source
@@ -56,6 +61,8 @@ class Console:
         self._restore_termios()
 
     def _restore_termios(self) -> None:
+        if termios is None:
+            return
         if self._old_termios is not None:
             try:
                 termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_termios)
@@ -99,6 +106,10 @@ class Console:
     # ── input loop ───────────────────────────────────────────────
 
     def _run(self) -> None:
+        if termios is None or tty_mod is None:
+            self._run_fallback()
+            return
+
         fd = sys.stdin.fileno()
         try:
             self._old_termios = termios.tcgetattr(fd)
@@ -107,7 +118,7 @@ class Console:
             return
 
         try:
-            tty.setcbreak(fd)
+            tty_mod.setcbreak(fd)
             sys.stdout.write("> ")
             sys.stdout.flush()
 

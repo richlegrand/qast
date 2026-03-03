@@ -79,7 +79,7 @@ def _wait_and_cast(pipeline: Pipeline, device: Device, has_capture: bool) -> Non
 
 @dataclass
 class Status:
-    state: str  # "playing" | "stopped" | "idle"
+    state: str  # "playing" | "idle"
     now_playing: str | None
     duration: float | None
     position: float | None  # elapsed content time in seconds
@@ -190,7 +190,7 @@ class Qast:
     Usage:
         q = Qast(device=devices[0])
         q.add("https://...")
-        q.add_screen()
+        q.add("screen")
         q.play()
         q.skip()
         q.stop()
@@ -244,12 +244,15 @@ class Qast:
 
     def play(self, repeat: bool = False, show_placeholder: bool = True,
              verbose: bool = False) -> None:
-        """Start playback. Non-blocking — returns immediately."""
+        """Start playback.
+
+        Returns after initial buffering and cast handoff are complete.
+        """
         if self._playing:
             return
 
         if self._queue is None:
-            raise RuntimeError("Nothing to play — call add() or add_screen() first")
+            raise RuntimeError("Nothing to play — call add() first")
 
         if repeat:
             self._queue.set_loop(repeat)

@@ -29,6 +29,21 @@ def probe_duration(path: str) -> float | None:
     return None
 
 
+def probe_has_audio(path: str) -> bool:
+    """Return True when ffprobe detects at least one audio stream."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        return bool(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
 @dataclass
 class ResolvedURL:
     title: str
@@ -205,17 +220,18 @@ def resolve_source(
     log.info("Resolving: %s", url)
 
     # Local files go straight to ffmpeg — no yt-dlp needed.
-    if os.path.isfile(url):
-        media_duration = probe_duration(url)
+    expanded_path = os.path.expanduser(url)
+    if os.path.isfile(expanded_path):
+        media_duration = probe_duration(expanded_path)
         if duration is not None:
             media_duration = duration
-        fallback_title = title or os.path.basename(url)
+        fallback_title = title or os.path.basename(expanded_path)
         return ResolvedURL(
             title=fallback_title,
             duration=media_duration,
             is_live=False,
-            source_urls=[url],
-            has_audio=False,
+            source_urls=[expanded_path],
+            has_audio=probe_has_audio(expanded_path),
         )
 
     resolved = resolve(url, cookies_from_browser=cookies_from_browser)

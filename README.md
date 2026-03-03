@@ -83,6 +83,50 @@ pip install qast[all]   # recommended: includes yt-dlp, Chromecast, and browser 
 pip install qast        # core only: local files, screen/webcam/window capture, piped data
 ```
 
+Build the Rust encoder binary (recommended):
+
+```bash
+cargo build --manifest-path rust/qast-encoder/Cargo.toml --release
+```
+
+### Build all components from source
+
+Linux/macOS (bash):
+
+```bash
+# from repo root
+python -m pip install -U pip
+python -m pip install -e ".[all]"
+python -m playwright install chromium   # only needed for browser: capture
+cargo build --manifest-path rust/qast-encoder/Cargo.toml --release
+```
+
+Windows (PowerShell):
+
+```powershell
+# from repo root
+py -m pip install -U pip
+py -m pip install -e ".[all]"
+py -m playwright install chromium       # only needed for browser: capture
+cargo build --manifest-path rust/qast-encoder/Cargo.toml --release
+```
+
+Quick verification:
+
+```bash
+qast --help
+qast-ui --help
+rust/qast-encoder/target/release/qast-encoder --help
+```
+
+Windows verification (PowerShell):
+
+```powershell
+qast --help
+qast-ui --help
+.\rust\qast-encoder\target\release\qast-encoder.exe --help
+```
+
 ### Requirements
 
 - Python 3.8+
@@ -107,6 +151,11 @@ pip install yt-dlp      # or: included in qast[all]
 Optional system packages:
 - xdotool — for `window` source on Linux (`apt install xdotool`)
 
+Windows notes:
+- Screen and window capture use ffmpeg `gdigrab`.
+- Webcam capture uses ffmpeg `dshow` with `video=default` by default.
+- If needed, set `QAST_WEBCAM_DEVICE` to a specific camera name.
+
 ## Quick start
 
 ```bash
@@ -121,6 +170,25 @@ qast screen
 
 # Pick a device by name
 qast -d "Samsung" video.mp4
+```
+
+Start local UI routes (public site + admin app):
+
+```bash
+qast-ui --host 127.0.0.1 --port 8787
+# public website: http://127.0.0.1:8787/
+# docs portal:    http://127.0.0.1:8787/docs
+# local admin ui: http://127.0.0.1:8787/admin
+```
+
+Production note: map the public site route (`/`) to `qast.nuts.services`, and keep `/admin` local/private.
+
+Enable optional Claude operator guidance:
+
+```bash
+export QAST_AI_ENABLE=1
+export QAST_ANTHROPIC_API_KEY=...
+export QAST_ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 ```
 
 ## What can you cast?
@@ -157,10 +225,12 @@ Works if your TV doesn't support Miracast or AirPlay.
 ### A single window
 
 ```bash
-qast window                  # click to select
+qast window                  # Linux: click to select
 qast window:Grafana          # by title
 qast window:Grafana@1m       # by title, 1 minute
 ```
+
+Windows note: use `window:<title>`. Interactive click-to-select is Linux-only.
 
 ### A webpage
 
@@ -407,7 +477,7 @@ cast("video.mp4", device="Living Room TV")
 cast("https://youtube.com/watch?v=...", device=0)
 
 # Cast your screen
-cast(screen=True, device="Samsung")
+cast("screen", device="Samsung")
 ```
 
 ### Queue-based playback
@@ -422,10 +492,10 @@ q = Qast(device="Living Room TV")
 q.add("https://youtube.com/watch?v=VIDEO1")
 q.add("https://youtube.com/watch?v=VIDEO2")
 q.add("~/Videos/workout.mp4", placeholder=False)
-q.add_screen(duration=30)
-q.add_window("Grafana", duration=60)
-q.add_browser("https://grafana.example.com/dashboard", duration=60)
-q.add_webcam(duration=120)
+q.add("screen", duration=30)
+q.add("window:Grafana", duration=60)
+q.add("browser:https://grafana.example.com/dashboard", duration=60)
+q.add("webcam", duration=120)
 
 q.play()                              # starts casting (non-blocking)
 q.add("another.mp4", duration=300)    # add with 5-minute limit
@@ -434,7 +504,7 @@ q.skip()                              # skip to next item
 q.stop()                              # stop and disconnect
 
 s = q.status()
-s.state               # "playing" | "stopped" | "idle"
+s.state               # "playing" | "idle"
 s.now_playing         # "Never Gonna Give You Up"
 s.duration            # 212.0 (seconds, None for live)
 s.position            # 45.3 (seconds elapsed)
@@ -573,7 +643,7 @@ yt-dlp supports [1000+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/suppo
 - **Scripting** — a simple script format for automated playback sequences with loops, durations, and mixed sources (`qast --script morning-tv.qast`)
 - **Audio with visualization** — render audio only files with graphical visualization
 - **Overlay/watermark** — add a visible overlay (aka watermark) to the video stream
-- **Windows support**
+- **Windows support hardening** — improve camera/window enumeration and install tooling
 - **macOS support (screen capture to come later)**
 
 ## License
