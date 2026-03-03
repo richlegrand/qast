@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Admin</title>
+  <style>
+    :root {
+      --bg: #0f1720;
+      --panel: #152232;
+      --ink: #d5e8f8;
+      --accent: #8ff9d2;
+      --line: #294863;
+    }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: linear-gradient(180deg, #0d141d 0%, var(--bg) 100%);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 2rem 1.2rem; }
+    h1 { margin: 0 0 1rem; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+    .k { color: var(--accent); font-family: "JetBrains Mono", monospace; font-size: 0.95rem; }
+    .row { margin: 0.6rem 0; }
+    .nav { margin-top: 1rem; display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    .nav a { color: var(--ink); text-decoration: none; border: 1px solid var(--line); padding: 0.45rem 0.65rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>qast Local Admin</h1>
+    <div class="panel">
+      <div class="row"><span class="k">role</span>: local operator ui</div>
+      <div class="row"><span class="k">api.health</span>: <span id="health">loading...</span></div>
+      <div class="row"><span class="k">next</span>: queue controls, status widgets, and diagnostics</div>
+      <div class="nav">
+        <a href="/">Public Site</a>
+        <a href="/docs">Docs</a>
+        <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((d) => { document.getElementById('health').textContent = d.ok ? 'ok' : 'error'; })
+      .catch(() => { document.getElementById('health').textContent = 'unavailable'; });
+  </script>
+</body>
+</html>

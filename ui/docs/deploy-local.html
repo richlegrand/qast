@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Deployment</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-left">
+      <a href="/" class="brand-link">qast</a>
+      <span class="brand-sep">/</span>
+      <strong>docs</strong>
+    </div>
+    <div class="top-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Getting Started</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Installation</a>
+      <h3>Usage</h3>
+      <a href="/docs/cli.html">CLI Reference</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <h3>Architecture</h3>
+      <a href="/docs/architecture.html">How It Works</a>
+      <a href="/docs/deploy-local.html" class="active">Deployment</a>
+    </aside>
+    <main>
+      <h1>Deployment</h1>
+      <p>qast includes a built-in web server that serves the public site, documentation portal, and local admin UI from one process. The same assets can be deployed to Google Cloud Run for public hosting.</p>
+
+      <h2>Local server</h2>
+      <pre><code>qast-ui --host 0.0.0.0 --port 8787</code></pre>
+
+      <h2>Routes</h2>
+      <table>
+        <thead><tr><th>Route</th><th>Content</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>/</code></td><td>Public site</td><td>Production target: <code>qast.nuts.services</code></td></tr>
+          <tr><td><code>/docs</code></td><td>Documentation portal</td><td>All docs pages</td></tr>
+          <tr><td><code>/admin</code></td><td>Local admin UI</td><td>Keep local-only or behind auth</td></tr>
+          <tr><td><code>/api/health</code></td><td>Health check</td><td>Returns <code>{"ok": true}</code></td></tr>
+          <tr><td><code>/api/ui-targets</code></td><td>Route metadata</td><td>Available UI endpoints</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Cloud Run deployment</h2>
+      <p>The <code>ui/</code> directory contains everything needed to deploy the site to Google Cloud Run:</p>
+      <ul>
+        <li><code>Dockerfile</code> &mdash; nginx:alpine serving static files</li>
+        <li><code>nginx.conf</code> &mdash; SPA routing, caching, security headers</li>
+        <li><code>deploy.sh</code> &mdash; automated deployment script</li>
+      </ul>
+
+      <h3>Deploy</h3>
+      <pre><code># From the ui/ directory
+cd ui
+bash deploy.sh</code></pre>
+
+      <p>The script will:</p>
+      <ol>
+        <li>Set the GCP project (<code>gnosis-459403</code>)</li>
+        <li>Enable required APIs (Cloud Run, Cloud Build, Artifact Registry)</li>
+        <li>Build and push the container via Cloud Build</li>
+        <li>Deploy to Cloud Run (128 Mi, 0&ndash;3 instances, unauthenticated)</li>
+      </ol>
+
+      <h3>Service configuration</h3>
+      <table>
+        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Service name</td><td><code>qast-site</code></td></tr>
+          <tr><td>Region</td><td><code>us-central1</code></td></tr>
+          <tr><td>Memory</td><td>128 Mi</td></tr>
+          <tr><td>CPU</td><td>1</td></tr>
+          <tr><td>Min instances</td><td>0 (scales to zero)</td></tr>
+          <tr><td>Max instances</td><td>3</td></tr>
+          <tr><td>Port</td><td>8080</td></tr>
+          <tr><td>Auth</td><td>Unauthenticated (public)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Custom domain</h3>
+      <p>After deployment, map the custom domain:</p>
+      <pre><code>gcloud run domain-mappings create \
+  --service qast-site \
+  --domain qast.nuts.services \
+  --region us-central1</code></pre>
+      <p>Then add a DNS CNAME record:</p>
+      <pre><code>CNAME  qast.nuts.services  →  ghs.googlehosted.com.</code></pre>
+      <p>SSL certificate provisioning is automatic and takes 15&ndash;30 minutes.</p>
+
+      <h2>Production notes</h2>
+      <ul>
+        <li>Route <code>/</code> and <code>/docs</code> to the public domain (<code>qast.nuts.services</code>).</li>
+        <li>Keep <code>/admin</code> local-only or behind VPN/auth.</li>
+        <li>The nginx container is ~7 MB and starts in under 1 second.</li>
+        <li>Cloud Run scales to zero when idle &mdash; no cost when not serving traffic.</li>
+      </ul>
+
+      <p class="credit">Created by Rich LeGrand &middot; MIT License</p>
+    </main>
+  </div>
+</body>
+</html>

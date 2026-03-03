@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-left">
+      <a href="/" class="brand-link">qast</a>
+      <span class="brand-sep">/</span>
+      <strong>docs</strong>
+    </div>
+    <div class="top-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer">GitHub</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Getting Started</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Installation</a>
+      <h3>Usage</h3>
+      <a href="/docs/cli.html">CLI Reference</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <h3>Architecture</h3>
+      <a href="/docs/architecture.html">How It Works</a>
+      <a href="/docs/deploy-local.html">Deployment</a>
+    </aside>
+    <main>
+      <h1>qast Documentation</h1>
+      <p>qast casts virtually any media source to any TV (Chromecast, DLNA, Roku) from the command line or Python code. It normalizes mixed media into one continuous H.264/AAC stream so playback works consistently across every TV protocol.</p>
+
+      <div class="cards">
+        <a class="card" href="/docs/getting-started.html">
+          <h3>Installation</h3>
+          <p>Install dependencies, build optional components, and verify your setup.</p>
+        </a>
+        <a class="card" href="/docs/cli.html">
+          <h3>CLI Reference</h3>
+          <p>Source syntax, device targeting, queue options, capture flags, and practical commands.</p>
+        </a>
+        <a class="card" href="/docs/python-api.html">
+          <h3>Python API</h3>
+          <p>Programmatic control with <code>discover()</code>, <code>cast()</code>, and the <code>Qast</code> queue controller.</p>
+        </a>
+        <a class="card" href="/docs/architecture.html">
+          <h3>Architecture</h3>
+          <p>Pipeline stages, protocol internals, frame-based flow control, and design decisions.</p>
+        </a>
+      </div>
+
+      <h2>Quick start</h2>
+      <pre><code>pip install qast[all]
+qast "https://youtube.com/watch?v=dQw4w9WgXcQ"</code></pre>
+      <p>That's it. qast discovers devices on your LAN, transcodes the video, and streams it to your TV.</p>
+
+      <h2>Key concepts</h2>
+      <ul>
+        <li><strong>Always-transcode:</strong> Every input is normalized to H.264 Main / AAC in MPEG-TS. This guarantees playback on every TV without format guessing.</li>
+        <li><strong>PTS rewriting:</strong> Timestamps are rewritten for continuity across queue items so the TV sees one unbroken stream.</li>
+        <li><strong>Protocol abstraction:</strong> Chromecast protobuf, DLNA SOAP, and Roku ECP are hidden behind a single <code>cast()</code> call.</li>
+        <li><strong>Frame-accurate timing:</strong> Video frames are counted in MPEG-TS packets for bitrate-independent duration tracking.</li>
+      </ul>
+
+      <h2>Source docs</h2>
+      <ul>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/README.md" target="_blank" rel="noreferrer">README.md</a> &mdash; full user guide</li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/api.md" target="_blank" rel="noreferrer">api.md</a> &mdash; Python API reference</li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/architecture.md" target="_blank" rel="noreferrer">architecture.md</a> &mdash; deep technical dive</li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/tv-protocols.md" target="_blank" rel="noreferrer">tv-protocols.md</a> &mdash; protocol documentation</li>
+      </ul>
+
+      <p class="credit">Created by Rich LeGrand &middot; MIT License</p>
+    </main>
+  </div>
+</body>
+</html>

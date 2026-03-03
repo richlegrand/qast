@@ -1,0 +1,144 @@
+:root,
+:root[data-theme="dark"] {
+  --bg: #0b1110;
+  --bg-top-1: #1f3f33;
+  --bg-top-2: #18322e;
+  --ink: #e6f2eb;
+  --muted: #9eb8ad;
+  --line: #2d4a3f;
+  --surface: #111c18;
+  --surface-2: #141f1a;
+  --accent: #4de0ac;
+  --accent-ink: #082118;
+  --topbar-bg: #0e1714e6;
+  --terminal-bg: #0d1614;
+  --terminal-border: #224238;
+  --terminal-ink: #d7ffed;
+  --terminal-muted: #8ac3a9;
+}
+
+:root[data-theme="light"] {
+  --bg: #f2efe7;
+  --bg-top-1: #c8e9db;
+  --bg-top-2: #fffdf4;
+  --ink: #1f2b24;
+  --muted: #4d5f54;
+  --line: #c7c3b8;
+  --surface: #ffffff;
+  --surface-2: #ffffff;
+  --accent: #0d8a63;
+  --accent-ink: #ffffff;
+  --topbar-bg: #fffcf3d6;
+  --terminal-bg: #17221c;
+  --terminal-border: #22362c;
+  --terminal-ink: #d5ffe8;
+  --terminal-muted: #91c4ac;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(90rem 35rem at 110% -15%, var(--bg-top-1) 0%, transparent 60%),
+    radial-gradient(55rem 25rem at -10% 0%, var(--bg-top-2) 0%, transparent 70%),
+    var(--bg);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+.topbar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--topbar-bg);
+  position: sticky;
+  top: 0;
+  backdrop-filter: blur(8px);
+}
+.brand-block { display: flex; flex-direction: column; gap: 0.18rem; }
+.brand { font-weight: 800; letter-spacing: 0.02em; font-size: 1.1rem; line-height: 1; }
+.brand-sub { font-size: 0.78rem; color: var(--muted); line-height: 1; }
+nav { display: flex; gap: 1rem; margin-left: 0; }
+nav a { color: var(--ink); text-decoration: none; border-bottom: 1px solid transparent; }
+nav a:hover { border-color: var(--ink); }
+.top-actions { display: flex; align-items: center; gap: 0.55rem; margin-left: auto; }
+.stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  padding: 0.38rem 0.55rem;
+  background: var(--surface);
+  font-size: 0.86rem;
+}
+.theme-toggle {
+  border: 1px solid var(--line);
+  padding: 0.42rem 0.6rem;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+main { max-width: 1040px; margin: 0 auto; padding: 2rem 1.2rem 3rem; }
+.hero { padding: 1.2rem 0 1rem; }
+.kicker { margin: 0; color: var(--accent); text-transform: uppercase; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.1em; }
+h1 { font-size: clamp(2rem, 5vw, 3.7rem); line-height: 1.03; margin: 0.4rem 0 0.8rem; max-width: 16ch; }
+.lede { font-size: 1.08rem; line-height: 1.6; max-width: 62ch; color: var(--muted); }
+.hero-actions { display: flex; gap: 0.8rem; margin-top: 1.1rem; flex-wrap: wrap; }
+.btn {
+  display: inline-block;
+  border: 1px solid var(--line);
+  padding: 0.72rem 0.95rem;
+  text-decoration: none;
+  color: var(--ink);
+  background: var(--surface);
+}
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.grid {
+  margin-top: 1.2rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.grid article {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 1rem;
+}
+.grid h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+.grid p { margin: 0; line-height: 1.55; color: var(--muted); }
+.terminal {
+  margin-top: 1.2rem;
+  background: var(--terminal-bg);
+  color: var(--terminal-ink);
+  padding: 1rem;
+  border: 1px solid var(--terminal-border);
+}
+.terminal h2 { margin: 0 0 0.8rem; font-size: 1.1rem; }
+.terminal pre { margin: 0; overflow-x: auto; }
+.terminal code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.92rem; line-height: 1.6; }
+.terminal .small { color: var(--terminal-muted); margin-top: 0.8rem; }
+.terminal a { color: var(--terminal-ink); }
+footer {
+  border-top: 1px solid var(--line);
+  padding: 1rem 1.2rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+footer a { color: inherit; }
+@media (max-width: 720px) {
+  nav { gap: 0.6rem; font-size: 0.95rem; margin-left: 0; }
+  .top-actions { margin-left: 0; }
+  .topbar { align-items: flex-start; flex-direction: column; gap: 0.4rem; }
+}
