@@ -32,6 +32,7 @@ qast url1 url2 url3 --repeat                  # Cast varied content, queued, and
   - [A single window](#a-single-window)
   - [A webpage](#a-webpage)
   - [Your webcam](#your-webcam)
+  - [RTSP streams](#rtsp-streams)
   - [Live TV streams](#live-tv-streams)
   - [Piped data](#piped-data)
 - [Queue mode](#queue-mode)
@@ -71,7 +72,9 @@ In other words, TV's streaming features differ. Straightforward "play this strea
 
 ## The solution
 
-qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, formats, and resolutions) back-to-back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. qast basically creates your own TV station from the command line.
+qast sidesteps the compatibility problem entirely. Practically all TVs accept either MPEG transport stream or fragmented MP4, so qast transcodes everything — URLs, files, screen captures, windows, webcams, piped data — into a single H.264/AAC stream. Input can be anything ffmpeg understands, which is practically every media format in existence. Because everything is transcoded to a common format, qast can play varied content (different sources, formats, and resolutions) back-to-back seamlessly. The TV sees one continuous stream with consistent format, resolution and bitrate throughout — content is added dynamically to a continuously-running mux, so there are no gaps or format switches between items. 
+
+qast basically creates your own TV station from the command line.
 
 ## Install
 
@@ -173,6 +176,14 @@ Renders a URL in headless Chromium and casts the result to your TV. Good for das
 ```bash
 qast webcam                    # default camera
 qast webcam@2m                 # capture for 2 minutes
+```
+
+### RTSP streams
+
+If you have a security camera on your network, it mostly likely outputs RTSP. You can cast it to your TV:
+
+```bash
+qast "rtsp://192.168.1.100:554/stream"
 ```
 
 ### Live TV streams
@@ -575,7 +586,7 @@ Our office has TVs of various types. During the Winter Olympics I had mixed resu
 
 Why can't I just "play this video" or "cast this window" to a given TV from the command line (and most importantly expect it to work)?
 
-Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription. Being a big ol nerd, it got me thinking -- could you make a streamer that's agnostic to both the video source/format and the TV type? And thus qast was born. I hope others find this tool useful. 
+Looking into it more, I found that screen casting is often a paid service for businesses (Yodeck, Screenly, UPshow, many more). These solutions typically use Raspberry Pis coupled to a cloud backend. The technical hurdles are solved but it requires a paid subscription and a Raspberry Pi for each TV. Being a big ol nerd, it got me thinking -- could you make a streamer that's agnostic to both the video source/format and the TV type? If so, you could curate your own "channel" of content and render it on practically any TV. Additionally, you could have a single machine casting customized streams to multiple TVs for free.
 
 qast is pronounced "cast". The q is for queue -- play a queue of varied content back-to-back. (And everyone knows replacing a c with q makes anything sound cooler.) 
 
