@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import os
 import sys
-import termios
 import time
 
+try:
+    import termios as _termios
+except ModuleNotFoundError:  # Windows
+    _termios = None
+
+from .assist import Advisor, analyze_setup
 from . import config
 from .api import _create_pipeline, _wait_and_cast
 from .cast.dispatch import cast_media, stop_device
@@ -20,8 +25,8 @@ from .log import setup_logging, get_logger
 from .pipeline.pipeline import Pipeline
 from .pipeline.segment import SegmentFFmpeg
 from .queue import PlayQueue
-from .resolve.ytdlp import resolve_source
 from .source import merge_duration_args, parse_duration, parse_source, has_capture_source
+from .tuning import adaptive_discovery_timeout, record_discovery_result
 
 log = get_logger("main")
 
@@ -65,19 +70,45 @@ def _select_device_auto(devices: list[Device], selector: str | None) -> Device:
     return select_device(devices)
 
 
+def _print_hints(title: str, hints: list[str]) -> None:
+    if not hints:
+        return
+    print(f"\n{title}:")
+    for tip in hints:
+        print(f"  - {tip}")
+
+
 def main() -> None:
     args = parse_args()
     setup_logging(verbose=args.verbose)
     config.ASPECT = args.aspect
     config.YOUTUBE_DEFAULT = args.youtube_default
 
-    print("Scanning for devices...")
-    devices = discover_all(show_all=args.show_all)
+    advisor = Advisor()
+    setup_report = analyze_setup(args.urls, args.playlist)
+    setup_hints = advisor.setup_hints(setup_report)
+    _print_hints("Setup checks", setup_hints)
+    if setup_report.blockers:
+        print("\nSetup blockers detected. Resolve them and retry.")
+        sys.exit(2)
+
+    scan_timeout = adaptive_discovery_timeout(config.DISCOVERY_TIMEOUT)
+    if scan_timeout != config.DISCOVERY_TIMEOUT:
+        print(f"Scanning for devices (adaptive timeout {scan_timeout}s)...")
+    else:
+        print("Scanning for devices...")
+    devices = discover_all(timeout=scan_timeout, show_all=args.show_all)
+    record_discovery_result(len(devices))
+    if not devices:
+        _print_hints("Discovery guidance", advisor.discovery_hints(scan_timeout, args.show_all))
 
     # Save terminal state — ffmpeg subprocesses can corrupt it on kill
-    try:
-        _saved_termios = termios.tcgetattr(sys.stdin.fileno())
-    except (termios.error, OSError):
+    if _termios is not None:
+        try:
+            _saved_termios = _termios.tcgetattr(sys.stdin.fileno())
+        except (_termios.error, OSError):
+            _saved_termios = None
+    else:
         _saved_termios = None
 
     pipeline: Pipeline | None = None
@@ -170,9 +201,17 @@ def main() -> None:
             _wait_and_cast(pipeline, device, is_capture)
         except RuntimeError as e:
             print(f"{e}. Exiting.")
+            _print_hints(
+                "Cast failure guidance",
+                advisor.cast_failure_hints(str(e), device.protocol if device else None),
+            )
             sys.exit(1)
         except Exception as e:
             print(f"  Cast failed: {e}")
+            _print_hints(
+                "Cast failure guidance",
+                advisor.cast_failure_hints(str(e), device.protocol if device else None),
+            )
             sys.exit(1)
 
         if verbose:
@@ -228,10 +267,10 @@ def main() -> None:
             pipeline.shutdown()
         stop_discovery()
         # Restore terminal state — ffmpeg can leave echo disabled
-        if _saved_termios is not None:
+        if _saved_termios is not None and _termios is not None:
             try:
-                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_termios)
-            except (termios.error, OSError):
+                _termios.tcsetattr(sys.stdin.fileno(), _termios.TCSADRAIN, _saved_termios)
+            except (_termios.error, OSError):
                 pass
 
 

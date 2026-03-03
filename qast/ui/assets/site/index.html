@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast - Cast Anything to Any TV</title>
+  <meta name="description" content="qast is a command-line TV casting engine for Chromecast, DLNA, and Roku.">
+  <link rel="canonical" href="https://qast.nuts.services/">
+  <link rel="stylesheet" href="/site/site.css">
+  <script src="/site/site.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-block">
+      <div class="brand">Qast</div>
+      <div class="brand-sub">it's hang'n on nuts.services</div>
+    </div>
+    <div class="top-actions">
+      <span class="stars">GitHub Stars <strong id="github-stars-count">87</strong></span>
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+    </div>
+    <nav>
+      <a href="/docs">Docs</a>
+      <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="/admin">Local Admin</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="kicker">Open Source TV Casting Engine</p>
+      <h1>Cast files, streams, screens, and webpages to real TVs from one CLI.</h1>
+      <p class="lede">
+        qast normalizes mixed media into one continuous stream so playback works consistently
+        across Chromecast, DLNA, and Roku devices.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="/docs/getting-started.html">Start In 60 Seconds</a>
+        <a class="btn" href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer">View Source</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article>
+        <h2>One input model</h2>
+        <p>URLs, local files, browser pages, webcam, desktop capture, and piped ffmpeg data all flow through one queue.</p>
+      </article>
+      <article>
+        <h2>Protocol-agnostic output</h2>
+        <p>Use one command and let qast drive Cast, DLNA SOAP, or Roku ECP signaling automatically.</p>
+      </article>
+      <article>
+        <h2>Deploy local</h2>
+        <p>Run <code>qast-ui</code> to serve this site, docs, and your local admin UI from one local process.</p>
+      </article>
+    </section>
+
+    <section class="terminal">
+      <h2>Quick glance</h2>
+      <pre><code>qast "https://youtube.com/watch?v=dQw4w9WgXcQ"
+qast screen
+qast window:Grafana@5m
+qast --playlist morning.txt --repeat
+qast-ui --host 127.0.0.1 --port 8787</code></pre>
+      <p class="small">Need implementation details? Read <a href="/docs">the docs</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>qast</span>
+    <span>Created by Rich LeGrand.</span>
+    <span>MIT License</span>
+    <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer">github.com/richlegrand/qast</a>
+  </footer>
+</body>
+</html>

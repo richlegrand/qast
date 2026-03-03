@@ -1,4 +1,4 @@
-"""Screen capture segment — captures desktop via ffmpeg x11grab."""
+"""Screen/window/webcam capture segments with platform-specific ffmpeg inputs."""
 
 from __future__ import annotations
 
@@ -68,6 +68,11 @@ def _get_window_geometry(window_id: int) -> tuple[int, int]:
 
 def _select_window() -> tuple[int, int, int]:
     """Prompt user to click a window. Returns (window_id, width, height)."""
+    if os.name == "nt":
+        raise SystemExit(
+            "Interactive window selection is not supported on Windows. "
+            "Use window:<title> (e.g. window:Notepad)."
+        )
     print("Click a window to capture...")
     try:
         wid_str = subprocess.check_output(
@@ -86,6 +91,11 @@ def _select_window() -> tuple[int, int, int]:
 
 def _find_window_by_title(title: str) -> tuple[int, int, int]:
     """Find a window by title via xdotool search. Returns (window_id, width, height)."""
+    if os.name == "nt":
+        raise SystemExit(
+            "Window lookup by title is handled directly by ffmpeg gdigrab on Windows."
+        )
+
     try:
         out = subprocess.check_output(
             ["xdotool", "search", "--name", title], timeout=5,
@@ -126,7 +136,7 @@ def _find_window_by_title(title: str) -> tuple[int, int, int]:
 
 
 class ScreenSegment(SegmentBase):
-    """Captures the screen via ffmpeg x11grab, outputting MPEG-TS on stdout.
+    """Captures screen/window via ffmpeg, outputting MPEG-TS on stdout.
 
     Same interface as SegmentFFmpeg: start(), wait(), kill(), stdout.
     """
@@ -138,16 +148,42 @@ class ScreenSegment(SegmentBase):
         cursor: bool = True,
         window_id: int | None = None,
         window_size: tuple[int, int] | None = None,
+        window_title: str | None = None,
         duration: float | None = None,
     ) -> None:
         super().__init__()
         self.cursor = cursor
         self.window_id = window_id
         self.window_size = window_size
+        self.window_title = window_title
         self.duration = duration
 
     def _build_cmd(self) -> list[str]:
         draw_mouse = "1" if self.cursor else "0"
+
+        if os.name == "nt":
+            if self.window_title:
+                input_spec = f"title={self.window_title}"
+                log.info("Capturing window by title: %s", self.window_title)
+            else:
+                input_spec = "desktop"
+                log.info("Capturing desktop via gdigrab")
+
+            cmd = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
+                "-f", "gdigrab",
+                "-framerate", config.VIDEO_FPS,
+                "-draw_mouse", draw_mouse,
+                "-i", input_spec,
+                # Silent audio (pipeline expects audio+video)
+                "-f", "lavfi", "-i",
+                f"anullsrc=r={config.AUDIO_SAMPLE_RATE}"
+                f":cl={'stereo' if config.AUDIO_CHANNELS == '2' else 'mono'}",
+            ]
+            if self.duration is not None:
+                cmd += ["-t", str(self.duration)]
+            cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
+            return cmd
 
         if self.window_id is not None and self.window_size is not None:
             win_w, win_h = self.window_size
@@ -188,7 +224,7 @@ class ScreenSegment(SegmentBase):
 
 
 class WebcamSegment(SegmentBase):
-    """Captures webcam via ffmpeg v4l2, outputting MPEG-TS on stdout.
+    """Captures webcam via ffmpeg, outputting MPEG-TS on stdout.
 
     Same interface as ScreenSegment: start(), wait(), kill(), stdout.
     """
@@ -197,18 +233,39 @@ class WebcamSegment(SegmentBase):
 
     def __init__(
         self,
-        device: str = "/dev/video0",
+        device: str | None = None,
         duration: float | None = None,
     ) -> None:
         super().__init__()
-        if not os.path.exists(device):
+        if device is None:
+            device = os.environ.get("QAST_WEBCAM_DEVICE")
+        if device is None:
+            device = "default" if os.name == "nt" else "/dev/video0"
+
+        if os.name != "nt" and not os.path.exists(device):
             raise FileNotFoundError(
                 f"No webcam found at {device}. Is a camera connected?"
             )
+
         self.device = device
         self.duration = duration
 
     def _build_cmd(self) -> list[str]:
+        if os.name == "nt":
+            cmd = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
+                "-f", "dshow",
+                "-i", f"video={self.device}",
+                # Silent audio (pipeline expects audio+video)
+                "-f", "lavfi", "-i",
+                f"anullsrc=r={config.AUDIO_SAMPLE_RATE}"
+                f":cl={'stereo' if config.AUDIO_CHANNELS == '2' else 'mono'}",
+            ]
+            if self.duration is not None:
+                cmd += ["-t", str(self.duration)]
+            cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
+            return cmd
+
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-stats",
             "-f", "v4l2",

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import threading
 
@@ -16,6 +18,27 @@ log = get_logger("pipeline.segment")
 _FRAME_RE = re.compile(r"frame=\s*(\d+)")
 
 _VIDEO_FPS = int(config.VIDEO_FPS)
+_RUST_FALLBACK_WARNED = False
+
+
+def _find_rust_encoder() -> str | None:
+    """Locate the Rust encoder binary, if available."""
+    suffix = ".exe" if os.name == "nt" else ""
+    env_bin = os.environ.get("QAST_ENCODER_BIN")
+    if env_bin and os.path.isfile(env_bin):
+        return env_bin
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    local_release = os.path.join(repo_root, "rust", "qast-encoder", "target", "release", f"qast-encoder{suffix}")
+    local_debug = os.path.join(repo_root, "rust", "qast-encoder", "target", "debug", f"qast-encoder{suffix}")
+    for candidate in (local_release, local_debug):
+        if os.path.isfile(candidate):
+            return candidate
+
+    path_bin = shutil.which("qast-encoder")
+    if path_bin:
+        return path_bin
+    return None
 
 
 class SegmentBase:
@@ -150,6 +173,31 @@ class SegmentFFmpeg(SegmentBase):
             super().start()
 
     def _build_cmd(self) -> list[str]:
+        encoder = _find_rust_encoder()
+        if encoder:
+            cmd = [encoder]
+            for url in self.source_urls:
+                cmd += ["--source", url]
+            if self.is_live:
+                cmd += ["--live"]
+            if self.duration is not None:
+                cmd += ["--duration", str(self.duration)]
+            cmd += ["--aspect", str(self.aspect)]
+            if not self.has_audio:
+                cmd += ["--no-audio"]
+            return cmd
+
+        global _RUST_FALLBACK_WARNED
+        if not _RUST_FALLBACK_WARNED:
+            log.warning(
+                "Rust encoder not found, falling back to ffmpeg subprocess path. "
+                "Build it with: cargo build --manifest-path rust/qast-encoder/Cargo.toml --release"
+            )
+            _RUST_FALLBACK_WARNED = True
+
+        return self._build_ffmpeg_cmd()
+
+    def _build_ffmpeg_cmd(self) -> list[str]:
         cmd = ["ffmpeg", "-y", "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats"]
 
         if self.is_live:

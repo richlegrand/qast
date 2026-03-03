@@ -18,6 +18,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -40,6 +41,14 @@ Repository = "https://github.com/richlegrand/qast"
 
 [project.scripts]
 qast = "qast.__main__:main"
+qast-ui = "qast.ui.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["qast*"]
+
+[tool.setuptools.package-data]
+"qast.ui" = [
+    "assets/site/*",
+    "assets/docs/*",
+    "assets/admin/*",
+]

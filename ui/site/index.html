@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>qast | Cast Anything to Any TV</title>
+    <meta name="description" content="Cast files, streams, screens, and webpages to any TV from the command line. Chromecast, DLNA, Roku. One tool.">
+    <meta property="og:title" content="qast | Cast Anything to Any TV">
+    <meta property="og:description" content="Cast files, streams, screens, and webpages to any TV from the command line. Chromecast, DLNA, Roku.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://qast.nuts.services">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="qast | Cast Anything to Any TV">
+    <meta name="twitter:description" content="Cast files, streams, screens, and webpages to any TV from the command line.">
+    <link rel="canonical" href="https://qast.nuts.services/">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'q-bg': 'var(--q-bg)',
+                        'q-surface': 'var(--q-surface)',
+                        'q-border': 'var(--q-border)',
+                        'q-green': '#4de0ac',
+                        'q-green-dim': '#2a7a5e',
+                        'q-emerald': '#059669',
+                        'q-teal': '#14b8a6',
+                        'q-text': 'var(--q-text)',
+                        'q-muted': 'var(--q-muted)',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --q-bg: #f8faf9;
+            --q-surface: #ffffff;
+            --q-border: #d4ddd8;
+            --q-text: #1f2b24;
+            --q-muted: #5c6e63;
+        }
+        html.dark {
+            --q-bg: #0b1110;
+            --q-surface: #111c18;
+            --q-border: #2d4a3f;
+            --q-text: #e6f2eb;
+            --q-muted: #9eb8ad;
+        }
+        body { background-color: var(--q-bg); color: var(--q-text); }
+        html.dark .dark\:bg-force { background-color: #111c18 !important; }
+
+        /* Terminal animation */
+        .terminal-line { opacity: 0; transform: translateY(4px); }
+        .terminal-line.visible { opacity: 1; transform: translateY(0); transition: all 0.4s ease; }
+        .cursor-blink { animation: blink 1s step-end infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* Pipeline animation */
+        .pipeline-step { opacity: 0.4; transition: all 0.5s ease; }
+        .pipeline-step.active { opacity: 1; }
+        .pipeline-arrow { color: var(--q-muted); }
+        .pipeline-arrow.active { color: #4de0ac; }
+
+        /* Glow effect on hero */
+        .hero-glow {
+            background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(77,224,172,0.12) 0%, transparent 70%);
+        }
+        html:not(.dark) .hero-glow {
+            background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(13,138,99,0.06) 0%, transparent 70%);
+        }
+
+        /* Smooth scrolling */
+        html { scroll-behavior: smooth; }
+
+        /* Protocol badges */
+        .protocol-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            padding: 0.2rem 0.5rem;
+        }
+
+        /* Tab styles */
+        .tab-btn { transition: all 0.2s ease; }
+        .tab-btn.active {
+            color: #4de0ac;
+            border-bottom-color: #4de0ac;
+        }
+        html:not(.dark) .tab-btn.active {
+            color: #059669;
+            border-bottom-color: #059669;
+        }
+    </style>
+</head>
+<body class="font-sans antialiased">
+
+<!-- Navigation -->
+<nav class="sticky top-0 z-50 border-b border-q-border bg-q-surface/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-6">
+            <a href="/" class="font-bold text-lg tracking-tight">qast</a>
+            <div class="hidden sm:flex items-center gap-4 text-sm">
+                <a href="#features" class="text-q-muted hover:text-q-text transition-colors">Features</a>
+                <a href="#how-it-works" class="text-q-muted hover:text-q-text transition-colors">How It Works</a>
+                <a href="#examples" class="text-q-muted hover:text-q-text transition-colors">Examples</a>
+                <a href="/docs" class="text-q-muted hover:text-q-text transition-colors">Docs</a>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer"
+               class="hidden sm:inline-flex items-center gap-1.5 text-sm border border-q-border rounded-md px-3 py-1.5 hover:border-q-green transition-colors">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span id="github-stars">--</span>
+            </a>
+            <button id="theme-toggle" class="border border-q-border rounded-md p-1.5 hover:border-q-green transition-colors" title="Toggle theme">
+                <svg id="theme-icon-dark" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                <svg id="theme-icon-light" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+            </button>
+        </div>
+    </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero-glow pt-16 pb-20 sm:pt-24 sm:pb-28">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+                <div class="inline-flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-q-green mb-4">
+                    <span class="w-2 h-2 rounded-full bg-q-green animate-pulse"></span>
+                    Open Source TV Casting Engine
+                </div>
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight mb-6">
+                    Cast anything<br>to any TV.
+                </h1>
+                <p class="text-lg text-q-muted max-w-lg leading-relaxed mb-8">
+                    Files, URLs, screens, webcams, browser pages &mdash; qast normalizes
+                    everything into one continuous H.264 stream and delivers it to
+                    Chromecast, DLNA, or Roku devices from a single CLI.
+                </p>
+                <div class="flex flex-wrap gap-3">
+                    <a href="/docs/getting-started.html"
+                       class="inline-flex items-center gap-2 bg-q-green text-[#082118] font-semibold px-5 py-2.5 rounded-md hover:brightness-110 transition-all">
+                        Get Started
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    </a>
+                    <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer"
+                       class="inline-flex items-center gap-2 border border-q-border px-5 py-2.5 rounded-md hover:border-q-green transition-colors">
+                        View Source
+                    </a>
+                    <a href="/docs/python-api.html"
+                       class="inline-flex items-center gap-2 border border-q-border px-5 py-2.5 rounded-md hover:border-q-green transition-colors">
+                        Python API
+                    </a>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-6">
+                    <span class="protocol-badge rounded-full border border-q-border text-q-muted">CHROMECAST</span>
+                    <span class="protocol-badge rounded-full border border-q-border text-q-muted">DLNA</span>
+                    <span class="protocol-badge rounded-full border border-q-border text-q-muted">ROKU</span>
+                    <span class="protocol-badge rounded-full border border-q-border text-q-muted">PYTHON 3.8+</span>
+                    <span class="protocol-badge rounded-full border border-q-border text-q-muted">MIT</span>
+                </div>
+            </div>
+
+            <!-- Terminal Preview -->
+            <div class="bg-[#0d1614] border border-[#224238] rounded-lg overflow-hidden shadow-2xl">
+                <div class="flex items-center gap-1.5 px-4 py-2.5 border-b border-[#224238]">
+                    <span class="w-3 h-3 rounded-full bg-[#ff5f57]"></span>
+                    <span class="w-3 h-3 rounded-full bg-[#febc2e]"></span>
+                    <span class="w-3 h-3 rounded-full bg-[#28c840]"></span>
+                    <span class="ml-3 text-xs text-[#8ac3a9] font-mono">terminal</span>
+                </div>
+                <div class="p-5 font-mono text-sm leading-relaxed" id="terminal-demo">
+                    <div class="terminal-line" data-delay="0">
+                        <span class="text-q-green">$</span>
+                        <span class="text-[#d7ffed]"> qast "https://youtube.com/watch?v=dQw4w9WgXcQ"</span>
+                    </div>
+                    <div class="terminal-line" data-delay="600">
+                        <span class="text-[#8ac3a9]">  discovering devices...</span>
+                    </div>
+                    <div class="terminal-line" data-delay="1200">
+                        <span class="text-[#8ac3a9]">  found 3 devices</span>
+                    </div>
+                    <div class="terminal-line" data-delay="1600">
+                        <span class="text-[#d7ffed]">  1) Living Room TV </span>
+                        <span class="text-[#4de0ac]">[chromecast]</span>
+                    </div>
+                    <div class="terminal-line" data-delay="1800">
+                        <span class="text-[#d7ffed]">  2) Samsung 65" </span>
+                        <span class="text-[#4de0ac]">[dlna]</span>
+                    </div>
+                    <div class="terminal-line" data-delay="2000">
+                        <span class="text-[#d7ffed]">  3) Bedroom Roku </span>
+                        <span class="text-[#4de0ac]">[roku]</span>
+                    </div>
+                    <div class="terminal-line" data-delay="2600">
+                        <span class="text-[#8ac3a9]">  resolving URL via yt-dlp...</span>
+                    </div>
+                    <div class="terminal-line" data-delay="3400">
+                        <span class="text-[#8ac3a9]">  transcoding → H.264/AAC MPEG-TS</span>
+                    </div>
+                    <div class="terminal-line" data-delay="4000">
+                        <span class="text-[#8ac3a9]">  buffering... ready</span>
+                    </div>
+                    <div class="terminal-line" data-delay="4400">
+                        <span class="text-q-green">  ▶ casting to Living Room TV</span>
+                        <span class="text-[#8ac3a9]"> 00:32 elapsed</span>
+                    </div>
+                    <div class="terminal-line" data-delay="4800">
+                        <span class="cursor-blink text-q-green">█</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Install strip -->
+<section class="border-y border-q-border bg-q-surface/50">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <span class="text-sm text-q-muted">Install with pip:</span>
+        <code class="font-mono text-sm bg-[#0d1614] text-[#d7ffed] px-4 py-2 rounded-md border border-[#224238] select-all">pip install qast[all]</code>
+        <span class="text-xs text-q-muted">Python 3.8+ &middot; requires ffmpeg</span>
+    </div>
+</section>
+
+<!-- Features -->
+<section id="features" class="py-20">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="text-center mb-14">
+            <h2 class="text-3xl sm:text-4xl font-bold mb-4">One tool. Every source. Every TV.</h2>
+            <p class="text-q-muted max-w-2xl mx-auto">qast handles the hard parts &mdash; format negotiation, codec transcoding, protocol switching, and timestamp continuity &mdash; so you don't have to.</p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <!-- Source card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M7 4V2m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-2 6h2m-2 0a2 2 0 100 4m0-4a2 2 0 110 4m10-12V2m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-2 6h2m-2 0a2 2 0 100 4m0-4a2 2 0 110 4"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Any source</h3>
+                <p class="text-sm text-q-muted leading-relaxed">YouTube, local files, desktop capture, webcam, individual windows, browser pages, RTSP cameras, HLS streams, piped data. Over 1,000 sites via yt-dlp.</p>
+            </div>
+
+            <!-- Protocol card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Any TV protocol</h3>
+                <p class="text-sm text-q-muted leading-relaxed">Chromecast (protobuf/TLS), DLNA (SOAP/UPnP), and Roku (ECP). Auto-discovers devices on your LAN. One command, zero config.</p>
+            </div>
+
+            <!-- Transcode card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Always-transcode</h3>
+                <p class="text-sm text-q-muted leading-relaxed">Every input is normalized to H.264 Main / AAC in MPEG-TS. This guarantees playback on every TV without format guessing or negotiation failures.</p>
+            </div>
+
+            <!-- Queue card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Queue &amp; playlist</h3>
+                <p class="text-sm text-q-muted leading-relaxed">Chain multiple sources with per-item durations, loop, shuffle, and playlist files. Seamless transitions with PTS rewriting.</p>
+            </div>
+
+            <!-- Python API card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Python API</h3>
+                <p class="text-sm text-q-muted leading-relaxed">Three-line one-shot casting or full queue control with <code class="text-xs bg-q-surface border border-q-border px-1 rounded">Qast()</code>. Build scheduled playback, signage, and automation.</p>
+            </div>
+
+            <!-- Pipeline card -->
+            <div class="border border-q-border rounded-lg p-6 bg-q-surface hover:border-q-green/40 transition-colors">
+                <div class="w-10 h-10 rounded-lg bg-q-green/10 flex items-center justify-center mb-4">
+                    <svg class="w-5 h-5 text-q-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <h3 class="font-semibold text-lg mb-2">Frame-accurate pipeline</h3>
+                <p class="text-sm text-q-muted leading-relaxed">Video frame counting in MPEG-TS for bitrate-independent timing. 64 MB ring buffer with content-time throttling. No gaps, no glitches.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How It Works -->
+<section id="how-it-works" class="py-20 border-y border-q-border bg-q-surface/30">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="text-center mb-14">
+            <h2 class="text-3xl sm:text-4xl font-bold mb-4">Pipeline</h2>
+            <p class="text-q-muted max-w-2xl mx-auto">Every source follows the same path. Mixed inputs produce one continuous, TV-compatible stream.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-1 mb-12" id="pipeline-viz">
+            <div class="pipeline-step active flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Source</span>
+                <span class="text-xs text-q-muted text-center">URL, file,<br>screen, cam</span>
+            </div>
+            <span class="pipeline-arrow active text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Resolve</span>
+                <span class="text-xs text-q-muted text-center">yt-dlp<br>extraction</span>
+            </div>
+            <span class="pipeline-arrow text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Transcode</span>
+                <span class="text-xs text-q-muted text-center">ffmpeg<br>H.264 / AAC</span>
+            </div>
+            <span class="pipeline-arrow text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Rewrite</span>
+                <span class="text-xs text-q-muted text-center">PTS/DTS<br>continuity</span>
+            </div>
+            <span class="pipeline-arrow text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Buffer</span>
+                <span class="text-xs text-q-muted text-center">64 MB ring<br>+ throttle</span>
+            </div>
+            <span class="pipeline-arrow text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-border rounded-lg bg-q-surface min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider">Serve</span>
+                <span class="text-xs text-q-muted text-center">HTTP<br>stream</span>
+            </div>
+            <span class="pipeline-arrow text-xl hidden sm:block">&rarr;</span>
+            <div class="pipeline-step flex flex-col items-center gap-2 px-4 py-3 border border-q-green rounded-lg bg-q-green/5 min-w-[100px]">
+                <span class="text-xs font-mono text-q-green uppercase tracking-wider font-bold">TV</span>
+                <span class="text-xs text-q-muted text-center">Cast, DLNA,<br>or Roku</span>
+            </div>
+        </div>
+
+        <!-- Technical details grid -->
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface">
+                <div class="font-mono text-xs text-q-green mb-2">CODEC</div>
+                <div class="text-sm font-semibold">H.264 Main + AAC</div>
+                <div class="text-xs text-q-muted mt-1">1080p30, 5 Mbps, ultrafast preset. 2-second GOP for reliable seeking.</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface">
+                <div class="font-mono text-xs text-q-green mb-2">CONTAINER</div>
+                <div class="text-sm font-semibold">MPEG-TS / fMP4</div>
+                <div class="text-xs text-q-muted mt-1">MPEG-TS for DLNA &amp; Roku. Fragmented MP4 remux for Chromecast.</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface">
+                <div class="font-mono text-xs text-q-green mb-2">BUFFER</div>
+                <div class="text-sm font-semibold">64 MB ring</div>
+                <div class="text-xs text-q-muted mt-1">In-memory, time-based flow control. Frame counting throttles encoder to prevent runaway.</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface">
+                <div class="font-mono text-xs text-q-green mb-2">DISCOVERY</div>
+                <div class="text-sm font-semibold">SSDP + mDNS</div>
+                <div class="text-xs text-q-muted mt-1">Parallel multi-protocol scan. Adaptive timeout learning from consecutive failures.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Source types -->
+<section class="py-20">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="text-center mb-14">
+            <h2 class="text-3xl sm:text-4xl font-bold mb-4">Everything is castable</h2>
+            <p class="text-q-muted max-w-2xl mx-auto">If it produces video, qast can put it on your TV.</p>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">URLs</div>
+                <div class="text-xs text-q-muted">YouTube, Vimeo, Twitch, TikTok &amp; 1000+ sites</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">Files</div>
+                <div class="text-xs text-q-muted">MP4, MKV, AVI, WebM, FLV, WMV, OGG</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">screen</div>
+                <div class="text-xs text-q-muted">Full desktop capture</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">window:Title</div>
+                <div class="text-xs text-q-muted">Individual window capture</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">webcam</div>
+                <div class="text-xs text-q-muted">Camera feed to TV</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">browser:url</div>
+                <div class="text-xs text-q-muted">Headless Chromium render</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">RTSP</div>
+                <div class="text-xs text-q-muted">Security cameras, IP cams</div>
+            </div>
+            <div class="border border-q-border rounded-lg p-4 bg-q-surface text-center">
+                <div class="font-mono text-sm text-q-green mb-1">HLS / IPTV</div>
+                <div class="text-xs text-q-muted">Live streams &amp; M3U playlists</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Code Examples -->
+<section id="examples" class="py-20 border-y border-q-border bg-q-surface/30">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="text-center mb-14">
+            <h2 class="text-3xl sm:text-4xl font-bold mb-4">Simple by default, powerful when needed</h2>
+            <p class="text-q-muted max-w-2xl mx-auto">From one-liners to programmatic queue management.</p>
+        </div>
+
+        <!-- Tab navigation -->
+        <div class="flex gap-1 border-b border-q-border mb-0">
+            <button class="tab-btn active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent" data-tab="cli" onclick="switchTab('cli')">CLI</button>
+            <button class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent" data-tab="python" onclick="switchTab('python')">Python API</button>
+            <button class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent" data-tab="queue" onclick="switchTab('queue')">Queue</button>
+        </div>
+
+        <!-- CLI tab -->
+        <div id="tab-cli" class="tab-content">
+            <div class="bg-[#0d1614] border border-[#224238] rounded-b-lg p-6 font-mono text-sm leading-loose">
+                <div class="text-[#8ac3a9] mb-3"># Cast a YouTube video to the first device found</div>
+                <div class="text-[#d7ffed]"><span class="text-q-green">$</span> qast "https://youtube.com/watch?v=dQw4w9WgXcQ"</div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-q-green">$</span> qast video.mp4 -d "Samsung"<span class="text-[#8ac3a9]">          # target a specific TV</span></div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-q-green">$</span> qast screen@5m<span class="text-[#8ac3a9]">                          # desktop capture, 5 minutes</span></div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-q-green">$</span> qast window:Grafana@5m<span class="text-[#8ac3a9]">                  # single window capture</span></div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-q-green">$</span> qast --playlist morning.txt --repeat<span class="text-[#8ac3a9]">   # playlist with loop</span></div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-q-green">$</span> qast browser:http://localhost:3000@30<span class="text-[#8ac3a9]">  # render webpage on TV</span></div>
+            </div>
+        </div>
+
+        <!-- Python tab -->
+        <div id="tab-python" class="tab-content hidden">
+            <div class="bg-[#0d1614] border border-[#224238] rounded-b-lg p-6 font-mono text-sm leading-loose">
+                <div class="text-[#8ac3a9]"># One-shot: discover and cast in three lines</div>
+                <div class="text-[#d7ffed]"><span class="text-[#c792ea]">from</span> qast <span class="text-[#c792ea]">import</span> discover, cast</div>
+                <div class="text-[#d7ffed] mt-2">devices = discover()</div>
+                <div class="text-[#d7ffed]">cast(<span class="text-q-green">"https://youtube.com/watch?v=..."</span>, device=devices[<span class="text-[#f78c6c]">0</span>])</div>
+                <div class="text-[#d7ffed] mt-6"><span class="text-[#8ac3a9]"># Queue-based: full control with status</span></div>
+                <div class="text-[#d7ffed]"><span class="text-[#c792ea]">from</span> qast <span class="text-[#c792ea]">import</span> Qast</div>
+                <div class="text-[#d7ffed] mt-2">q = Qast(device=<span class="text-q-green">"Living Room TV"</span>)</div>
+                <div class="text-[#d7ffed]">q.add(<span class="text-q-green">"screen"</span>, duration=<span class="text-[#f78c6c]">30</span>)</div>
+                <div class="text-[#d7ffed]">q.add(<span class="text-q-green">"window:Grafana"</span>, duration=<span class="text-[#f78c6c]">120</span>)</div>
+                <div class="text-[#d7ffed]">q.add(<span class="text-q-green">"https://youtube.com/watch?v=..."</span>)</div>
+                <div class="text-[#d7ffed]">q.play(repeat=<span class="text-[#c792ea]">True</span>)</div>
+                <div class="text-[#d7ffed] mt-2">status = q.status()</div>
+                <div class="text-[#d7ffed]"><span class="text-[#c792ea]">print</span>(status.state, status.now_playing)</div>
+            </div>
+        </div>
+
+        <!-- Queue tab -->
+        <div id="tab-queue" class="tab-content hidden">
+            <div class="bg-[#0d1614] border border-[#224238] rounded-b-lg p-6 font-mono text-sm leading-loose">
+                <div class="text-[#8ac3a9]"># playlist.txt — one source per line, durations with @</div>
+                <div class="text-[#d7ffed] mt-2">https://youtube.com/watch?v=VIDEO1</div>
+                <div class="text-[#d7ffed]">https://youtube.com/watch?v=VIDEO2@3m</div>
+                <div class="text-[#d7ffed]">~/Videos/workout.mp4</div>
+                <div class="text-[#d7ffed]">screen@30</div>
+                <div class="text-[#d7ffed]">window:Grafana@5m</div>
+                <div class="text-[#d7ffed] mt-4"><span class="text-[#8ac3a9]"># Comments start with #</span></div>
+                <div class="text-[#d7ffed]"><span class="text-[#8ac3a9]"># Blank lines are ignored</span></div>
+                <div class="text-[#d7ffed] mt-6"><span class="text-q-green">$</span> qast --playlist playlist.txt --repeat --shuffle</div>
+                <div class="text-[#d7ffed] mt-2"><span class="text-q-green">$</span> qast video1.mp4 video2.mp4 screen@1m -d roku<span class="text-[#8ac3a9]">  # inline queue</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Protocol comparison -->
+<section class="py-20">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+        <div class="text-center mb-14">
+            <h2 class="text-3xl sm:text-4xl font-bold mb-4">Three protocols, one command</h2>
+            <p class="text-q-muted max-w-2xl mx-auto">qast auto-discovers devices and drives the right protocol. You never think about it.</p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="border-b border-q-border">
+                        <th class="text-left py-3 px-4 font-mono text-xs text-q-green uppercase tracking-wider"></th>
+                        <th class="text-left py-3 px-4 font-mono text-xs text-q-green uppercase tracking-wider">Chromecast</th>
+                        <th class="text-left py-3 px-4 font-mono text-xs text-q-green uppercase tracking-wider">DLNA</th>
+                        <th class="text-left py-3 px-4 font-mono text-xs text-q-green uppercase tracking-wider">Roku</th>
+                    </tr>
+                </thead>
+                <tbody class="text-q-muted">
+                    <tr class="border-b border-q-border/50">
+                        <td class="py-3 px-4 font-medium text-q-text">Discovery</td>
+                        <td class="py-3 px-4">mDNS / DNS-SD</td>
+                        <td class="py-3 px-4">SSDP multicast</td>
+                        <td class="py-3 px-4">SSDP multicast</td>
+                    </tr>
+                    <tr class="border-b border-q-border/50">
+                        <td class="py-3 px-4 font-medium text-q-text">Signaling</td>
+                        <td class="py-3 px-4">Protobuf / TLS</td>
+                        <td class="py-3 px-4">SOAP / UPnP</td>
+                        <td class="py-3 px-4">ECP / HTTP</td>
+                    </tr>
+                    <tr class="border-b border-q-border/50">
+                        <td class="py-3 px-4 font-medium text-q-text">Container</td>
+                        <td class="py-3 px-4">Fragmented MP4</td>
+                        <td class="py-3 px-4">MPEG-TS</td>
+                        <td class="py-3 px-4">MPEG-TS</td>
+                    </tr>
+                    <tr class="border-b border-q-border/50">
+                        <td class="py-3 px-4 font-medium text-q-text">TVs</td>
+                        <td class="py-3 px-4">Chromecast, Android TV, Google TV</td>
+                        <td class="py-3 px-4">Samsung, LG, Sony, most smart TVs</td>
+                        <td class="py-3 px-4">All Roku devices</td>
+                    </tr>
+                    <tr>
+                        <td class="py-3 px-4 font-medium text-q-text">Dependency</td>
+                        <td class="py-3 px-4">pychromecast</td>
+                        <td class="py-3 px-4">None (built-in)</td>
+                        <td class="py-3 px-4">None (built-in)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="py-20 border-t border-q-border">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 text-center">
+        <h2 class="text-3xl sm:text-4xl font-bold mb-4">Ready to cast?</h2>
+        <p class="text-q-muted mb-8 max-w-lg mx-auto">Install qast, point it at a URL or file, and it's on your TV.</p>
+        <div class="flex flex-wrap justify-center gap-3">
+            <a href="/docs/getting-started.html"
+               class="inline-flex items-center gap-2 bg-q-green text-[#082118] font-semibold px-6 py-3 rounded-md hover:brightness-110 transition-all">
+                Get Started
+            </a>
+            <a href="/docs"
+               class="inline-flex items-center gap-2 border border-q-border px-6 py-3 rounded-md hover:border-q-green transition-colors">
+                Read the Docs
+            </a>
+            <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer"
+               class="inline-flex items-center gap-2 border border-q-border px-6 py-3 rounded-md hover:border-q-green transition-colors">
+                GitHub
+            </a>
+        </div>
+    </div>
+</section>
+
+<!-- Footer -->
+<footer class="border-t border-q-border py-8">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-q-muted">
+        <div class="flex items-center gap-4">
+            <span class="font-bold text-q-text">qast</span>
+            <span>Created by Rich LeGrand</span>
+        </div>
+        <div class="flex items-center gap-4">
+            <span>MIT License</span>
+            <a href="https://github.com/richlegrand/qast" target="_blank" rel="noreferrer" class="hover:text-q-text transition-colors">GitHub</a>
+            <a href="/docs" class="hover:text-q-text transition-colors">Docs</a>
+        </div>
+    </div>
+</footer>
+
+<script>
+(function () {
+    // Theme management
+    const THEME_KEY = "qast-theme";
+    const root = document.documentElement;
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light") { root.classList.remove("dark"); } else { root.classList.add("dark"); }
+
+    function updateIcons() {
+        const dark = root.classList.contains("dark");
+        document.getElementById("theme-icon-dark").classList.toggle("hidden", !dark);
+        document.getElementById("theme-icon-light").classList.toggle("hidden", dark);
+    }
+    updateIcons();
+
+    document.getElementById("theme-toggle").addEventListener("click", function () {
+        root.classList.toggle("dark");
+        localStorage.setItem(THEME_KEY, root.classList.contains("dark") ? "dark" : "light");
+        updateIcons();
+    });
+
+    // GitHub stars
+    fetch("https://api.github.com/repos/richlegrand/qast", {
+        headers: { Accept: "application/vnd.github+json" }
+    })
+    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+    .then(function (d) {
+        var el = document.getElementById("github-stars");
+        if (el && typeof d.stargazers_count === "number") el.textContent = d.stargazers_count;
+    })
+    .catch(function () {
+        var el = document.getElementById("github-stars");
+        if (el) el.textContent = "87";
+    });
+
+    // Terminal animation
+    var lines = document.querySelectorAll(".terminal-line");
+    lines.forEach(function (line) {
+        var delay = parseInt(line.getAttribute("data-delay") || "0", 10);
+        setTimeout(function () { line.classList.add("visible"); }, delay);
+    });
+
+    // Pipeline animation on scroll
+    var pipelineSteps = document.querySelectorAll(".pipeline-step");
+    var pipelineArrows = document.querySelectorAll(".pipeline-arrow");
+    var pipelineViz = document.getElementById("pipeline-viz");
+    var pipelineAnimated = false;
+
+    function animatePipeline() {
+        if (pipelineAnimated) return;
+        var rect = pipelineViz.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.8) {
+            pipelineAnimated = true;
+            pipelineSteps.forEach(function (step, i) {
+                setTimeout(function () {
+                    step.classList.add("active");
+                    if (pipelineArrows[i]) pipelineArrows[i].classList.add("active");
+                }, i * 200);
+            });
+        }
+    }
+    window.addEventListener("scroll", animatePipeline, { passive: true });
+    animatePipeline();
+})();
+
+// Tab switching
+function switchTab(name) {
+    document.querySelectorAll(".tab-content").forEach(function (el) { el.classList.add("hidden"); });
+    document.querySelectorAll(".tab-btn").forEach(function (el) { el.classList.remove("active"); });
+    document.getElementById("tab-" + name).classList.remove("hidden");
+    document.querySelector('[data-tab="' + name + '"]').classList.add("active");
+}
+</script>
+
+</body>
+</html>
