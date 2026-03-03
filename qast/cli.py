@@ -29,7 +29,7 @@ class Args:
 def parse_args(argv: list[str] | None = None) -> Args:
     parser = argparse.ArgumentParser(
         prog="qast",
-        description="Cast URLs to Chromecast devices via an always-transcode pipeline.",
+        description="Cast sources to Chromecast, DLNA, and Roku devices via an always-transcode pipeline.",
     )
     parser.add_argument(
         "urls",

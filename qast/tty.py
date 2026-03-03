@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -13,6 +14,11 @@ def tty_input(prompt: str = "") -> str:
     """
     if sys.stdin.isatty():
         return input(prompt)
+    if os.name == "nt":
+        # Windows has no /dev/tty or termios; best effort fallback.
+        if prompt:
+            print(prompt, end="", flush=True)
+        return sys.stdin.readline().rstrip("\r\n")
     import termios
     with open("/dev/tty") as tty:
         fd = tty.fileno()

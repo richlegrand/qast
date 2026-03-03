@@ -97,7 +97,7 @@ def parse_source(
                          title="Screen Capture")
 
     if source == "webcam":
-        if not os.path.exists("/dev/video0"):
+        if os.name != "nt" and not os.path.exists("/dev/video0"):
             raise SystemExit("No webcam found at /dev/video0. Is a camera connected?")
         return QueueItem(capture="webcam", duration=duration, title="Webcam")
 
