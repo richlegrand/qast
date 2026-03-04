@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - CLI Guide</title>
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <strong>qast docs</strong>
+    <div class="top-actions">
+      <span class="stars">GitHub Stars <strong id="github-stars-count">87</strong></span>
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Documentation</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Getting Started</a>
+      <a href="/docs/cli.html">CLI Guide</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <a href="/docs/deploy-local.html">Local Deployment</a>
+    </aside>
+    <main>
+      <h1>CLI Guide</h1>
+      <p>qast accepts URLs, local files, capture sources, and playlists.</p>
+      <h2>Common commands</h2>
+      <pre><code>qast "https://youtube.com/watch?v=..."
+qast video.mp4
+qast screen
+qast window:Grafana@5m
+qast --playlist morning.txt --repeat
+qast -d "Samsung" video.mp4</code></pre>
+      <h2>Source syntax</h2>
+      <ul>
+        <li><code>&lt;url-or-file&gt;[@duration]</code></li>
+        <li><code>screen[@duration]</code></li>
+        <li><code>webcam[@duration]</code></li>
+        <li><code>window[:title][@duration]</code> (Windows: use <code>window:title</code>)</li>
+        <li><code>browser:&lt;url&gt;[@duration]</code></li>
+      </ul>
+      <h2>Flags worth knowing</h2>
+      <ul>
+        <li><code>--repeat</code>, <code>--shuffle</code>, <code>--playlist FILE</code></li>
+        <li><code>--cookies-from-browser chrome</code> for YouTube extraction issues</li>
+        <li><code>--preroll 5</code> to work around DLNA start truncation</li>
+        <li><code>--show-all</code> to display all protocol variants</li>
+      </ul>
+      <p class="credit">Created by Rich LeGrand.</p>
+    </main>
+  </div>
+</body>
+</html>

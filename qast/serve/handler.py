@@ -58,7 +58,7 @@ class StreamHandler(BaseHTTPRequestHandler):
                     break
                 self.wfile.write(chunk)
                 total += len(chunk)
-        except (ConnectionResetError, BrokenPipeError):
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             log.info("Client disconnected after %d bytes", total)
             if self.disconnect_event is not None:
                 self.disconnect_event.set()

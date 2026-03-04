@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Python API</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-left">
+      <a href="/" class="brand-link">qast</a>
+      <span class="brand-sep">/</span>
+      <strong>docs</strong>
+    </div>
+    <div class="top-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Getting Started</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Installation</a>
+      <h3>Usage</h3>
+      <a href="/docs/cli.html">CLI Reference</a>
+      <a href="/docs/python-api.html" class="active">Python API</a>
+      <h3>Architecture</h3>
+      <a href="/docs/architecture.html">How It Works</a>
+      <a href="/docs/deploy-local.html">Deployment</a>
+    </aside>
+    <main>
+      <h1>Python API</h1>
+      <p>qast exposes a clean Python API for automation, scheduled playback, and digital signage.</p>
+
+      <h2>Public exports</h2>
+      <pre><code>from qast import discover, cast, Qast, Device, Status, QueueItem</code></pre>
+
+      <h2>Device discovery</h2>
+      <pre><code>from qast import discover
+
+# Discover all TVs on the LAN (5-second scan)
+devices = discover()
+
+for d in devices:
+    print(f"{d.name} [{d.protocol}] {d.host}:{d.port}")
+
+# Extended scan with all protocol variants
+devices = discover(timeout=15, show_all=True)</code></pre>
+
+      <h3>discover()</h3>
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>timeout</code></td><td>int</td><td>15</td><td>Discovery timeout in seconds</td></tr>
+          <tr><td><code>show_all</code></td><td>bool</td><td>False</td><td>Include all protocol variants per device</td></tr>
+        </tbody>
+      </table>
+      <p>Returns <code>list[Device]</code>. Each <code>Device</code> has <code>name</code>, <code>protocol</code>, <code>host</code>, <code>port</code>.</p>
+
+      <h2>One-shot casting</h2>
+      <pre><code>from qast import discover, cast
+
+devices = discover()
+
+# Cast a URL
+cast("https://youtube.com/watch?v=dQw4w9WgXcQ", device=devices[0])
+
+# Cast a local file with duration limit
+cast("video.mp4", device=devices[0], duration=60)
+
+# Cast desktop for 30 seconds
+cast("screen", device="roku", duration=30)
+
+# Cast with YouTube cookies
+cast("https://youtube.com/watch?v=...",
+     device="Living Room TV",
+     cookies_from_browser="chrome")</code></pre>
+
+      <h3>cast()</h3>
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>source</code></td><td>str</td><td>URL, file path, or capture source</td></tr>
+          <tr><td><code>device</code></td><td>Device | str | int</td><td>Target device, name, or index</td></tr>
+          <tr><td><code>duration</code></td><td>int | None</td><td>Max playback seconds</td></tr>
+          <tr><td><code>repeat</code></td><td>bool</td><td>Loop playback</td></tr>
+          <tr><td><code>shuffle</code></td><td>bool</td><td>Randomize order</td></tr>
+          <tr><td><code>cookies_from_browser</code></td><td>str | None</td><td>Browser for cookie extraction</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Queue-based playback</h2>
+      <pre><code>from qast import Qast
+
+# Create a queue targeting a specific device
+q = Qast(device="Living Room TV")
+
+# Add sources with optional durations
+q.add("https://youtube.com/watch?v=VIDEO1")
+q.add("~/Videos/workout.mp4", duration=300)
+q.add("screen", duration=30)
+q.add("window:Grafana", duration=120)
+
+# Start playback
+q.play()                          # play once
+q.play(repeat=True)               # loop forever
+q.play(repeat=True, shuffle=True) # loop + shuffle
+
+# Dynamic control during playback
+q.skip()       # skip to next item
+q.remove(2)    # remove item at index
+q.stop()       # stop playback</code></pre>
+
+      <h2>Queue status</h2>
+      <pre><code># Get current playback status
+status = q.status()
+
+print(status.state)        # "playing", "stopped", etc.
+print(status.now_playing)  # current source string
+print(status.duration)     # elapsed seconds
+print(status.position)     # current queue position
+print(status.queue)        # list of QueueItem objects</code></pre>
+
+      <h3>Status fields</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>state</code></td><td>str</td><td>Current state (playing, stopped, etc.)</td></tr>
+          <tr><td><code>now_playing</code></td><td>str</td><td>Active source</td></tr>
+          <tr><td><code>duration</code></td><td>float</td><td>Elapsed playback time</td></tr>
+          <tr><td><code>position</code></td><td>int</td><td>Queue index</td></tr>
+          <tr><td><code>queue</code></td><td>list[QueueItem]</td><td>All queued items</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Use cases</h2>
+      <ul>
+        <li><strong>Digital signage:</strong> Loop dashboards, videos, and web pages on a lobby TV.</li>
+        <li><strong>Scheduled playback:</strong> Use cron + Python to cast content at specific times.</li>
+        <li><strong>Monitoring:</strong> Cast Grafana dashboards or security cameras to a wall display.</li>
+        <li><strong>Testing:</strong> Automate TV protocol testing across Chromecast, DLNA, and Roku.</li>
+      </ul>
+
+      <h2>References</h2>
+      <ul>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/api.md" target="_blank" rel="noreferrer">Full API reference (api.md)</a></li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/one_shot_example.py" target="_blank" rel="noreferrer">one_shot_example.py</a></li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/queue_example.py" target="_blank" rel="noreferrer">queue_example.py</a></li>
+      </ul>
+
+      <p class="credit">Created by Rich LeGrand &middot; MIT License</p>
+    </main>
+  </div>
+</body>
+</html>

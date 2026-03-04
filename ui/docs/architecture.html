@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-left">
+      <a href="/" class="brand-link">qast</a>
+      <span class="brand-sep">/</span>
+      <strong>docs</strong>
+    </div>
+    <div class="top-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Getting Started</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Installation</a>
+      <h3>Usage</h3>
+      <a href="/docs/cli.html">CLI Reference</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <h3>Architecture</h3>
+      <a href="/docs/architecture.html" class="active">How It Works</a>
+      <a href="/docs/deploy-local.html">Deployment</a>
+    </aside>
+    <main>
+      <h1>Architecture</h1>
+      <p>qast is built around a single pipeline that normalizes any input into a continuous, TV-compatible stream. This page covers the key stages, design decisions, and protocol internals.</p>
+
+      <h2>Pipeline overview</h2>
+      <pre><code>[Source] → [Resolve] → [Transcode] → [TS Rewrite] → [Mux] → [Buffer] → [HTTP] → [TV]</code></pre>
+
+      <h2>Stage 1: Source resolution</h2>
+      <p>The source parser (<code>qast/source.py</code>) classifies each input and routes it appropriately:</p>
+      <ul>
+        <li><strong>URLs</strong> are resolved via yt-dlp, which extracts the direct media stream. For YouTube DASH, separate video and audio streams are selected for maximum quality.</li>
+        <li><strong>Local files</strong> pass through directly.</li>
+        <li><strong>Capture sources</strong> (<code>screen</code>, <code>window:Title</code>, <code>webcam</code>) use platform-specific ffmpeg input devices.</li>
+        <li><strong>Browser sources</strong> launch headless Chromium via Playwright and capture the rendered page.</li>
+      </ul>
+
+      <h2>Stage 2: Transcoding</h2>
+      <p>Every input is transcoded to a universal format via ffmpeg:</p>
+      <table>
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Video codec</td><td>H.264 Main profile</td></tr>
+          <tr><td>Resolution</td><td>1920x1080 @ 30fps</td></tr>
+          <tr><td>Preset</td><td>ultrafast</td></tr>
+          <tr><td>Bitrate</td><td>5 Mbps</td></tr>
+          <tr><td>GOP</td><td>60 frames (2 seconds)</td></tr>
+          <tr><td>Audio codec</td><td>AAC stereo, 44.1 kHz, 128 kbps</td></tr>
+          <tr><td>Container</td><td>MPEG-TS (stdout)</td></tr>
+        </tbody>
+      </table>
+      <p>The always-transcode design trades CPU for zero compatibility issues. Every TV that supports H.264 Main (which is all of them) will play the output.</p>
+
+      <h2>Stage 3: PTS/DTS rewriting</h2>
+      <p>The TS rewriter (<code>qast/pipeline/tsrewrite.py</code>) processes 188-byte MPEG-TS packets and rewrites PTS, DTS, and PCR timestamps for continuity. This ensures seamless transitions between queue items &mdash; the TV sees one unbroken stream even when the underlying source changes.</p>
+      <p>Timestamps use 90 kHz integer ticks (no floating point) to avoid drift.</p>
+
+      <h2>Stage 4: Container muxing</h2>
+      <ul>
+        <li><strong>DLNA &amp; Roku:</strong> Raw MPEG-TS is served directly.</li>
+        <li><strong>Chromecast:</strong> A long-lived ffmpeg process remuxes MPEG-TS into fragmented MP4 (<code>-c copy</code>, no re-encoding).</li>
+      </ul>
+
+      <h2>Stage 5: Ring buffer</h2>
+      <p>The ring buffer (<code>qast/pipeline/ringbuf.py</code>) is an in-memory circular buffer with time-based flow control:</p>
+      <ul>
+        <li><strong>Capacity:</strong> 64 MB max, 4 MB min (adjusted for capture sources).</li>
+        <li><strong>Frame counting:</strong> Video frames are parsed from MPEG-TS PES headers (stream IDs 0xE0&ndash;0xEF) to compute content-time independently of bitrate.</li>
+        <li><strong>Throttling:</strong> When content-time leads wall-time by more than 10 seconds, the encoder is throttled to prevent unbounded memory growth.</li>
+      </ul>
+
+      <h2>Stage 6: HTTP server</h2>
+      <p>A <code>ThreadingHTTPServer</code> streams the buffer contents to the TV over HTTP. It handles:</p>
+      <ul>
+        <li>Range requests and fake Content-Length (100 GB) for DLNA compatibility.</li>
+        <li>Disconnect detection via <code>BrokenPipeError</code>.</li>
+        <li>Concurrent connections for multi-device casting.</li>
+      </ul>
+
+      <h2>Device discovery</h2>
+      <p>Discovery runs in parallel across all protocols:</p>
+      <table>
+        <thead><tr><th>Protocol</th><th>Method</th><th>Details</th></tr></thead>
+        <tbody>
+          <tr><td>DLNA</td><td>SSDP</td><td>UDP multicast to 239.255.255.250:1900</td></tr>
+          <tr><td>Roku</td><td>SSDP</td><td>Same multicast, filtered by Roku service type</td></tr>
+          <tr><td>Chromecast</td><td>mDNS/DNS-SD</td><td>Multicast to 224.0.0.251:5353 via pychromecast</td></tr>
+        </tbody>
+      </table>
+      <p>Results are deduplicated and sorted alphabetically. Adaptive timeout learning (<code>qast/tuning.py</code>) tracks consecutive discovery failures and extends timeouts dynamically.</p>
+
+      <h2>Protocol casting</h2>
+      <h3>DLNA</h3>
+      <p>SOAP/UPnP: <code>SetAVTransportURI</code> followed by <code>Play</code>. Polling monitors playback state.</p>
+
+      <h3>Chromecast</h3>
+      <p>Protobuf over TLS via pychromecast. Media controller launches a default media receiver that loads the HTTP stream URL.</p>
+
+      <h3>Roku</h3>
+      <p>HTTP POST to the ECP endpoint. Requires the free Media Assistant channel (ID 782875) to be installed on the Roku device.</p>
+
+      <h2>YouTube DASH handling</h2>
+      <p>By default, qast selects separate video and audio DASH streams for higher quality. The audio stream is downloaded to a temp file (~1&ndash;2 MB) to work around an ffmpeg HTTP multi-input bug. If the audio download fails, qast automatically falls back to a muxed stream.</p>
+
+      <h2>Design decisions</h2>
+      <ul>
+        <li><strong>Always transcode:</strong> Guarantees compatibility. The alternative &mdash; format detection and selective transcoding &mdash; is fragile and produces inconsistent results across TVs.</li>
+        <li><strong>Frame-based timing:</strong> Counting video frames is more accurate than estimating from bitrate. This enables precise placeholder durations, readiness detection, and elapsed-time display.</li>
+        <li><strong>Single continuous stream:</strong> PTS rewriting makes the TV see one unbroken stream. This avoids reconnection delays and buffering spinners between queue items.</li>
+        <li><strong>In-memory buffer:</strong> No temp files. Everything flows through memory with explicit back-pressure.</li>
+      </ul>
+
+      <h2>Source reference</h2>
+      <ul>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/architecture.md" target="_blank" rel="noreferrer">architecture.md</a> &mdash; deep technical dive (20 KB)</li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/tv-protocols.md" target="_blank" rel="noreferrer">tv-protocols.md</a> &mdash; protocol documentation</li>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/qast-screen-capture-spec.md" target="_blank" rel="noreferrer">qast-screen-capture-spec.md</a> &mdash; capture specification</li>
+      </ul>
+
+      <p class="credit">Created by Rich LeGrand &middot; MIT License</p>
+    </main>
+  </div>
+</body>
+</html>

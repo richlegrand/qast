@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Getting Started</title>
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <strong>qast docs</strong>
+    <div class="top-actions">
+      <span class="stars">GitHub Stars <strong id="github-stars-count">87</strong></span>
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Documentation</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Getting Started</a>
+      <a href="/docs/cli.html">CLI Guide</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <a href="/docs/deploy-local.html">Local Deployment</a>
+    </aside>
+    <main>
+      <h1>Getting Started</h1>
+      <p>Install Python package dependencies and build the Rust encoder once.</p>
+      <h2>Linux/macOS</h2>
+      <pre><code>python -m pip install -U pip
+python -m pip install -e ".[all]"
+python -m playwright install chromium
+cargo build --manifest-path rust/qast-encoder/Cargo.toml --release</code></pre>
+      <h2>Windows PowerShell</h2>
+      <pre><code>py -m pip install -U pip
+py -m pip install -e ".[all]"
+py -m playwright install chromium
+cargo build --manifest-path rust/qast-encoder/Cargo.toml --release</code></pre>
+      <h2>Verify</h2>
+      <pre><code>qast --help
+qast-ui --help
+# Windows:
+.\rust\qast-encoder\target\release\qast-encoder.exe --help
+# Linux/macOS:
+rust/qast-encoder/target/release/qast-encoder --help</code></pre>
+      <p class="small">If browser capture is not needed, Playwright install can be skipped.</p>
+      <p class="credit">Created by Rich LeGrand.</p>
+    </main>
+  </div>
+</body>
+</html>

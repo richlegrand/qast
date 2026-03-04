@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qast Docs - Python API</title>
+  <link rel="stylesheet" href="/docs/docs.css">
+  <script src="/docs/docs.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <strong>qast docs</strong>
+    <div class="top-actions">
+      <span class="stars">GitHub Stars <strong id="github-stars-count">87</strong></span>
+      <button id="theme-toggle" class="theme-toggle" type="button">Light mode</button>
+      <a href="/">Site</a>
+      <a href="/docs">Docs Home</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <aside>
+      <h3>Documentation</h3>
+      <a href="/docs">Overview</a>
+      <a href="/docs/getting-started.html">Getting Started</a>
+      <a href="/docs/cli.html">CLI Guide</a>
+      <a href="/docs/python-api.html">Python API</a>
+      <a href="/docs/deploy-local.html">Local Deployment</a>
+    </aside>
+    <main>
+      <h1>Python API</h1>
+      <p>Use qast programmatically for automation and scheduled playback.</p>
+      <h2>One-shot</h2>
+      <pre><code>from qast import discover, cast
+
+devices = discover()
+cast("https://youtube.com/watch?v=...", device=devices[0])</code></pre>
+      <h2>Queue-based</h2>
+      <pre><code>from qast import Qast
+
+q = Qast(device="Living Room TV")
+q.add("screen", duration=30)
+q.add("window:Grafana", duration=120)
+q.add("https://youtube.com/watch?v=...")
+q.play(repeat=True)
+
+status = q.status()
+print(status.state, status.now_playing, status.queue)</code></pre>
+      <h2>References</h2>
+      <ul>
+        <li><a href="https://github.com/richlegrand/qast/blob/main/api.md" target="_blank" rel="noreferrer">Full API reference (api.md)</a></li>
+      </ul>
+      <p class="credit">Created by Rich LeGrand.</p>
+    </main>
+  </div>
+</body>
+</html>
