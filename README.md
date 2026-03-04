@@ -1,6 +1,8 @@
 # qast
 
-qast casts anything to any TV from the command line. 
+qast casts anything to any TV from the command line.
+
+**Website:** [qast.nuts.services](https://qast-site-949870462453.us-central1.run.app) · **Docs:** [qast.nuts.services/docs](https://qast-site-949870462453.us-central1.run.app/docs) · **License:** MIT
 
 ```bash
 qast video.mov                                # Cast local file

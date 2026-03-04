@@ -223,6 +223,33 @@ class ScreenSegment(SegmentBase):
         return cmd
 
 
+def _detect_windows_camera() -> str:
+    """Auto-detect the first real video capture device on Windows via ffmpeg dshow."""
+    try:
+        out = subprocess.check_output(
+            ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+            stderr=subprocess.STDOUT, timeout=10,
+        ).decode(errors="replace")
+    except subprocess.CalledProcessError as e:
+        out = e.output.decode(errors="replace") if e.output else ""
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        raise SystemExit("ffmpeg not found. Install ffmpeg and add it to PATH.")
+
+    for line in out.splitlines():
+        if "(video)" in line:
+            # Extract device name between quotes: "HD Pro Webcam C920" (video)
+            match = re.search(r'"(.+?)"\s*\(video\)', line)
+            if match:
+                name = match.group(1)
+                log.info("Auto-detected webcam: %s", name)
+                return name
+
+    raise SystemExit(
+        "No webcam found. Connect a camera or set QAST_WEBCAM_DEVICE "
+        "to the device name (run: ffmpeg -list_devices true -f dshow -i dummy)"
+    )
+
+
 class WebcamSegment(SegmentBase):
     """Captures webcam via ffmpeg, outputting MPEG-TS on stdout.
 
@@ -240,7 +267,10 @@ class WebcamSegment(SegmentBase):
         if device is None:
             device = os.environ.get("QAST_WEBCAM_DEVICE")
         if device is None:
-            device = "default" if os.name == "nt" else "/dev/video0"
+            if os.name == "nt":
+                device = _detect_windows_camera()
+            else:
+                device = "/dev/video0"
 
         if os.name != "nt" and not os.path.exists(device):
             raise FileNotFoundError(
