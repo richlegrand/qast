@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .. import config
@@ -39,6 +40,15 @@ _MIN_PLACEHOLDER_FRAMES = int(_MIN_PLACEHOLDER_SECS * int(config.VIDEO_FPS))
 
 # One video frame in 90 kHz ticks at configured fps
 _TICKS_PER_FRAME = 90_000 // int(config.VIDEO_FPS)
+
+
+@dataclass
+class _PrewarmState:
+    """Result from the prewarm worker thread."""
+    item: object | None       # ResolvedURL or None (queue exhausted)
+    segment: SegmentFFmpeg | None  # None = not pre-warmable or failed
+    first_chunk: bytes | None
+    label: str
 
 
 class Pipeline:
@@ -95,6 +105,11 @@ class Pipeline:
         self.current_duration: float | None = None
         self._item_video_frames: int = 0    # video frames for current item (resets per item)
         self._segment_cb: object | None = None  # Callable[[], None]
+        # Prewarm state
+        self._prewarm_ready: threading.Event | None = None
+        self._prewarm_state: _PrewarmState | None = None
+        self._prewarm_thread: threading.Thread | None = None
+        self._prewarm_label: str | None = None
 
     def set_segment_callback(self, cb) -> None:
         self._segment_cb = cb
@@ -289,6 +304,141 @@ class Pipeline:
         waiter.join(timeout=2)
         return result[0]
 
+    # ── segment pre-warming ────────────────────────────────────────
+
+    def _start_prewarm(self, queue: PlayQueue) -> None:
+        """Launch prewarm thread for next item (runs concurrently with current playback)."""
+        if self._shutdown_event.is_set():
+            return
+        if not queue.has_more():
+            return
+        if self._prewarm_thread and self._prewarm_thread.is_alive():
+            return
+        self._prewarm_label = queue.peek_next_label()
+        self._prewarm_ready = threading.Event()
+        self._prewarm_thread = threading.Thread(
+            target=self._prewarm_worker, args=(queue,), daemon=True,
+        )
+        self._prewarm_thread.start()
+
+    def _prewarm_worker(self, queue: PlayQueue) -> None:
+        """Background thread: dequeue + resolve next item, optionally start its ffmpeg."""
+        item = None
+        try:
+            item = queue.next()
+            if item is None or self._shutdown_event.is_set():
+                self._prewarm_state = _PrewarmState(item=item, segment=None,
+                                                     first_chunk=None, label="")
+                return
+
+            pre_warmable = item.capture is None and not item.is_live
+            if pre_warmable:
+                seg = SegmentFFmpeg(
+                    item.source_urls, is_live=False, duration=item.duration,
+                    aspect=config.ASPECT, has_audio=item.has_audio,
+                )
+                if self._shutdown_event.is_set():
+                    self._prewarm_state = _PrewarmState(
+                        item=item, segment=None, first_chunk=None,
+                        label=item.title or "")
+                    return
+                seg.start()
+                first_chunk = seg.stdout.read(config.PIPE_CHUNK)
+                if not first_chunk:
+                    seg.kill()
+                    log.debug("Prewarm: segment produced no data for %s", item.title)
+                    self._prewarm_state = _PrewarmState(
+                        item=item, segment=None, first_chunk=None,
+                        label=item.title or "")
+                else:
+                    log.info("Prewarm ready: %s (%d bytes)", item.title, len(first_chunk))
+                    self._prewarm_state = _PrewarmState(
+                        item=item, segment=seg, first_chunk=first_chunk,
+                        label=item.title or "")
+            else:
+                log.debug("Prewarm: not pre-warmable (%s)", item.title)
+                self._prewarm_state = _PrewarmState(
+                    item=item, segment=None, first_chunk=None,
+                    label=item.title or "")
+        except Exception:
+            log.debug("Prewarm: exception", exc_info=True)
+            self._prewarm_state = _PrewarmState(
+                item=item, segment=None, first_chunk=None,
+                label=(item.title if item else "") or "")
+        finally:
+            self._prewarm_ready.set()
+
+    def _consume_prewarm(self, queue: PlayQueue, sink):
+        """Consume prewarmed result, returning (item, segment_or_None, first_chunk_or_None)."""
+        if self._prewarm_ready is None:
+            # No prewarm was started — fall back to normal path
+            item = self._next_with_placeholder(queue, sink)
+            return (item, None, None)
+
+        if not self._prewarm_ready.is_set():
+            # Prewarm still running — decide whether to block or show placeholder
+            lead = self.buffer_lead
+            if lead is not None and lead >= config.MAX_BUFFER_LEAD / 2:
+                log.info("Buffer lead %.1fs, waiting for prewarm without placeholder", lead)
+                self._prewarm_ready.wait()
+            else:
+                # Show placeholder while waiting for prewarm
+                label = self._prewarm_label
+                ph_text = f"Up next: {label}" if label else "Up next..."
+                log.info("Prewarm not ready, showing placeholder: %s", ph_text)
+
+                ph = PlaceholderSegment(text=ph_text, duration=120)
+                ph.start()
+
+                base_min = self._placeholder_time if self._placeholder_time else _MIN_PLACEHOLDER_SECS
+                min_frames = int(base_min * int(config.VIDEO_FPS))
+                self._pump_segment(ph, sink, max_video_frames=min_frames, throttle=False)
+                while not self._prewarm_ready.is_set():
+                    if self._shutdown_event.is_set():
+                        ph.kill()
+                        raise _PipelineShutdown
+                    if self._skip_event.is_set():
+                        break
+                    if self._prewarm_ready.wait(timeout=0.5):
+                        break
+                    lead = self.buffer_lead
+                    if lead is not None and lead > config.MAX_BUFFER_LEAD:
+                        continue
+                    if ph.proc and ph.proc.poll() is not None:
+                        continue
+                    next_limit = self._rewriter.video_frame_count + int(config.VIDEO_GOP)
+                    self._pump_segment(ph, sink, max_video_frames=next_limit, throttle=False)
+
+                ph.kill()
+                self._rewriter.flush()
+                ph_frames = self._rewriter.video_frame_count
+                log.info("Prewarm placeholder done: %d frames (%.1fs content)",
+                         ph_frames, ph_frames / int(config.VIDEO_FPS))
+                self._advance_offset()
+
+        # Consume the prewarm result
+        if self._prewarm_thread:
+            self._prewarm_thread.join(timeout=5)
+        pw = self._prewarm_state
+        self._prewarm_state = None
+        self._prewarm_ready = None
+        self._prewarm_thread = None
+        self._prewarm_label = None
+
+        if pw is None:
+            # Shouldn't happen, but handle gracefully
+            return (None, None, None)
+        return (pw.item, pw.segment, pw.first_chunk)
+
+    def _cleanup_prewarm(self) -> None:
+        """Kill any unconsumed prewarmed segment and join thread."""
+        if self._prewarm_state and self._prewarm_state.segment:
+            self._prewarm_state.segment.kill()
+        if self._prewarm_thread and self._prewarm_thread.is_alive():
+            self._prewarm_thread.join(timeout=3)
+        self._prewarm_state = None
+        self._prewarm_ready = None
+
     # ── single-video mode ─────────────────────────────────────────
 
     def start_single(
@@ -422,27 +572,19 @@ class Pipeline:
 
                 if first:
                     item = queue.next()
+                    pw_seg = None
+                    pw_fc = None
                 else:
-                    item = self._next_with_placeholder(queue, sink)
+                    item, pw_seg, pw_fc = self._consume_prewarm(queue, sink)
                 if item is None:
                     log.info("Queue exhausted")
                     break
 
+                # Launch prewarm for the NEXT item (runs during this segment)
+                # Must peek label before start_prefetch pops the item from pending
+                self._start_prewarm(queue)
                 # Start resolving the next item while this one plays
                 queue.start_prefetch()
-
-                # Create the real segment early so placeholder and segment
-                # can run concurrently.
-                if item.capture:
-                    seg = self._create_capture_segment(item)
-                else:
-                    seg = SegmentFFmpeg(
-                        item.source_urls,
-                        is_live=item.is_live,
-                        duration=item.duration,
-                        aspect=config.ASPECT,
-                        has_audio=item.has_audio,
-                    )
 
                 # Reset skip event for this item
                 self._skip_event.clear()
@@ -453,28 +595,45 @@ class Pipeline:
                 self._item_video_frames = 0
                 self._notify_segment()
 
-                # Per-item placeholder: preroll only forces the loading screen,
-                # not between-segment placeholders.
-                if first:
-                    item_show_placeholder = (show_placeholder and item.show_placeholder) or self._preroll > 0
+                if pw_seg:
+                    # Fully prewarmed: skip placeholder entirely
+                    self._current_segment = pw_seg
+                    self._pump_segment(pw_seg, sink, first_chunk=pw_fc)
+                    self._current_segment = None
                 else:
-                    item_show_placeholder = show_placeholder and item.show_placeholder
-                if item_show_placeholder:
-                    is_loading = first
-                    if first:
-                        ph_text = f"Loading: {item.title}"
-                        first = False
+                    # Create segment: capture/live/failed prewarm/first item
+                    if item.capture:
+                        seg = self._create_capture_segment(item)
                     else:
-                        ph_text = f"Up next: {item.title}"
-                    fc = self._show_placeholder(ph_text, seg, sink, loading=is_loading)
-                    self._current_segment = seg
-                    self._pump_segment(seg, sink, first_chunk=fc)
-                    self._current_segment = None
-                else:
-                    first = False
-                    self._current_segment = seg
-                    self._run_segment(seg, sink)
-                    self._current_segment = None
+                        seg = SegmentFFmpeg(
+                            item.source_urls,
+                            is_live=item.is_live,
+                            duration=item.duration,
+                            aspect=config.ASPECT,
+                            has_audio=item.has_audio,
+                        )
+
+                    # Per-item placeholder: preroll only forces the loading screen
+                    if first:
+                        item_show_placeholder = (show_placeholder and item.show_placeholder) or self._preroll > 0
+                    else:
+                        item_show_placeholder = show_placeholder and item.show_placeholder
+                    if item_show_placeholder:
+                        is_loading = first
+                        if first:
+                            ph_text = f"Loading: {item.title}"
+                        else:
+                            ph_text = f"Up next: {item.title}"
+                        fc = self._show_placeholder(ph_text, seg, sink, loading=is_loading)
+                        self._current_segment = seg
+                        self._pump_segment(seg, sink, first_chunk=fc)
+                        self._current_segment = None
+                    else:
+                        self._current_segment = seg
+                        self._run_segment(seg, sink)
+                        self._current_segment = None
+
+                first = False
 
                 if self._rewriter.max_pts > 0:
                     self._advance_offset()
@@ -501,6 +660,7 @@ class Pipeline:
         except _PipelineShutdown:
             log.debug("Bridge queue: shutdown requested")
         finally:
+            self._cleanup_prewarm()
             self._close_sink()
             if not self._shutdown_event.is_set():
                 if self.master:
@@ -840,6 +1000,7 @@ class Pipeline:
         self.current_duration = None
         self._shutdown_event.set()
         self._skip_event.set()  # unblock any segment reads
+        self._cleanup_prewarm()
         if self._current_segment:
             self._current_segment.kill()
         if self.master:
