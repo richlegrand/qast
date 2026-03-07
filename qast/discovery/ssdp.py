@@ -36,10 +36,14 @@ def ssdp_search(
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.settimeout(2)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+    sock.settimeout(1)
 
-    for _ in range(3):
-        sock.sendto(msg, ("239.255.255.250", 1900))
+    dest = ("239.255.255.250", 1900)
+    for i in range(3):
+        sock.sendto(msg, dest)
+        if i < 2:
+            time.sleep(0.05)
 
     locations: set[str] = set()
     deadline = time.time() + timeout
@@ -60,7 +64,7 @@ def ssdp_search(
             if locations and last_response and (time.time() - last_response) >= 3:
                 break
             if time.time() < deadline:
-                sock.sendto(msg, ("239.255.255.250", 1900))
+                sock.sendto(msg, dest)
                 continue
             break
     sock.close()

@@ -81,7 +81,11 @@ def resolve(url: str, cookies_from_browser: str | None = None) -> ResolvedURL | 
         return None
 
     if result.returncode != 0:
-        log.warning("yt-dlp failed: %s", result.stderr.strip())
+        stderr = result.stderr.strip()
+        log.warning("yt-dlp failed: %s", stderr)
+        stderr_lower = stderr.lower()
+        if "latest version" in stderr_lower or "challenge" in stderr_lower:
+            log.warning("yt-dlp may be outdated. Update with: pip install -U yt-dlp")
         return None
 
     try:
@@ -227,8 +231,11 @@ def resolve_source(
 
     # yt-dlp failed — pass raw URL directly to ffmpeg
     if "youtube.com" in url or "youtu.be" in url:
-        log.warning("yt-dlp failed for %s — YouTube may be blocking requests. "
-                    "Try --cookies-from-browser chrome", url)
+        hint = ""
+        if not cookies_from_browser:
+            hint = " Try --cookies-from-browser chrome"
+        log.warning("yt-dlp failed for %s — YouTube may be blocking requests.%s",
+                    url, hint)
     else:
         log.warning("Failed to resolve %s, using raw URL", url)
     media_duration = duration
