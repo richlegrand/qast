@@ -334,34 +334,48 @@ class Pipeline:
             pre_warmable = (item.capture is None or item.capture == "browser") and not item.is_live
             if pre_warmable:
                 if item.capture == "browser":
+                    # Browser prewarm: load the page but do NOT start x11grab.
+                    # Starting ffmpeg here would fill the stdout pipe while
+                    # the previous segment is still playing, causing x11grab
+                    # frame drops (dup/drop) when the pipe finally drains.
                     from .browser import BrowserSegment
                     url = item.source_urls[0] if item.source_urls else ""
                     seg = BrowserSegment(url, duration=item.duration,
                                          fade_in=config.FADE_DURATION, fade_out=config.FADE_DURATION)
+                    if self._shutdown_event.is_set():
+                        self._prewarm_state = _PrewarmState(
+                            item=item, segment=None, first_chunk=None,
+                            label=item.title or "")
+                        return
+                    seg.prewarm()
+                    log.info("Prewarm ready (browser): %s", item.title)
+                    self._prewarm_state = _PrewarmState(
+                        item=item, segment=seg, first_chunk=None,
+                        label=item.title or "")
                 else:
                     seg = SegmentFFmpeg(
                         item.source_urls, is_live=False, duration=item.duration,
                         aspect=config.ASPECT, has_audio=item.has_audio,
                         fade_in=config.FADE_DURATION, fade_out=config.FADE_DURATION,
                     )
-                if self._shutdown_event.is_set():
-                    self._prewarm_state = _PrewarmState(
-                        item=item, segment=None, first_chunk=None,
-                        label=item.title or "")
-                    return
-                seg.start()
-                first_chunk = seg.stdout.read(config.PIPE_CHUNK)
-                if not first_chunk:
-                    seg.kill()
-                    log.debug("Prewarm: segment produced no data for %s", item.title)
-                    self._prewarm_state = _PrewarmState(
-                        item=item, segment=None, first_chunk=None,
-                        label=item.title or "")
-                else:
-                    log.info("Prewarm ready: %s (%d bytes)", item.title, len(first_chunk))
-                    self._prewarm_state = _PrewarmState(
-                        item=item, segment=seg, first_chunk=first_chunk,
-                        label=item.title or "")
+                    if self._shutdown_event.is_set():
+                        self._prewarm_state = _PrewarmState(
+                            item=item, segment=None, first_chunk=None,
+                            label=item.title or "")
+                        return
+                    seg.start()
+                    first_chunk = seg.stdout.read(config.PIPE_CHUNK)
+                    if not first_chunk:
+                        seg.kill()
+                        log.debug("Prewarm: segment produced no data for %s", item.title)
+                        self._prewarm_state = _PrewarmState(
+                            item=item, segment=None, first_chunk=None,
+                            label=item.title or "")
+                    else:
+                        log.info("Prewarm ready: %s (%d bytes)", item.title, len(first_chunk))
+                        self._prewarm_state = _PrewarmState(
+                            item=item, segment=seg, first_chunk=first_chunk,
+                            label=item.title or "")
             else:
                 log.debug("Prewarm: not pre-warmable (%s)", item.title)
                 self._prewarm_state = _PrewarmState(
@@ -602,10 +616,15 @@ class Pipeline:
                 self._item_video_frames = 0
                 self._notify_segment()
 
-                if pw_seg:
-                    # Fully prewarmed: skip placeholder entirely
+                if pw_seg and pw_fc:
+                    # Fully prewarmed with data: skip placeholder entirely
                     self._current_segment = pw_seg
                     self._pump_segment(pw_seg, sink, first_chunk=pw_fc)
+                    self._current_segment = None
+                elif pw_seg:
+                    # Browser prewarm: page loaded, start capture now
+                    self._current_segment = pw_seg
+                    self._run_segment(pw_seg, sink)
                     self._current_segment = None
                 else:
                     # Create segment: capture/live/failed prewarm/first item

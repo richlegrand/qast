@@ -120,7 +120,9 @@ class SegmentBase:
             except ValueError:
                 cmd += ["-vf", ",".join(vfades)]
         if afades:
-            cmd += ["-af", ",".join(afades)]
+            # Insert before the output format spec (-f mpegts pipe:1)
+            # which is always the last 3 elements from ffmpeg_output_args().
+            cmd[-3:-3] = ["-af", ",".join(afades)]
         return cmd
 
     @property
