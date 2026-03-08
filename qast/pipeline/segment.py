@@ -27,11 +27,13 @@ class SegmentBase:
 
     _log_name: str = "Segment"
 
-    def __init__(self) -> None:
+    def __init__(self, fade_in: float = 0, fade_out: float = 0) -> None:
         self.proc: subprocess.Popen | None = None
         self.actual_duration: float | None = None
         self._stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
+        self.fade_in = fade_in
+        self.fade_out = fade_out
 
     def _build_cmd(self) -> list[str]:
         raise NotImplementedError
@@ -100,6 +102,27 @@ class SegmentBase:
             self.proc.wait()
             log.debug("%s killed", self._log_name)
 
+    def _append_fade_filters(self, cmd: list[str]) -> list[str]:
+        """Append fade-in/out video and audio filters to an ffmpeg command."""
+        vfades: list[str] = []
+        afades: list[str] = []
+        if self.fade_in > 0:
+            vfades.append(f"fade=t=in:d={self.fade_in}")
+            afades.append(f"afade=t=in:d={self.fade_in}")
+        if self.fade_out > 0 and self.duration is not None:
+            st = max(0, self.duration - self.fade_out)
+            vfades.append(f"fade=t=out:st={st}:d={self.fade_out}")
+            afades.append(f"afade=t=out:st={st}:d={self.fade_out}")
+        if vfades:
+            try:
+                idx = cmd.index("-vf")
+                cmd[idx + 1] += "," + ",".join(vfades)
+            except ValueError:
+                cmd += ["-vf", ",".join(vfades)]
+        if afades:
+            cmd += ["-af", ",".join(afades)]
+        return cmd
+
     @property
     def stdout(self):
         return self.proc.stdout if self.proc else None
@@ -122,8 +145,10 @@ class SegmentFFmpeg(SegmentBase):
         duration: float | None = None,
         aspect: float = 1.0,
         has_audio: bool = True,
+        fade_in: float = 0,
+        fade_out: float = 0,
     ) -> None:
-        super().__init__()
+        super().__init__(fade_in=fade_in, fade_out=fade_out)
         self.source_urls = source_urls
         self.is_live = is_live
         self.duration = duration
@@ -169,4 +194,6 @@ class SegmentFFmpeg(SegmentBase):
             cmd += ["-t", str(self.duration)]
 
         cmd += config.ffmpeg_output_args(aspect=self.aspect)
+        cmd = self._append_fade_filters(cmd)
+
         return cmd

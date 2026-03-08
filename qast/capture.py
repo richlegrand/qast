@@ -139,8 +139,10 @@ class ScreenSegment(SegmentBase):
         window_id: int | None = None,
         window_size: tuple[int, int] | None = None,
         duration: float | None = None,
+        fade_in: float = 0,
+        fade_out: float = 0,
     ) -> None:
-        super().__init__()
+        super().__init__(fade_in=fade_in, fade_out=fade_out)
         self.cursor = cursor
         self.window_id = window_id
         self.window_size = window_size
@@ -184,6 +186,7 @@ class ScreenSegment(SegmentBase):
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
         cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
+        cmd = self._append_fade_filters(cmd)
         return cmd
 
 
@@ -199,8 +202,10 @@ class WebcamSegment(SegmentBase):
         self,
         device: str = "/dev/video0",
         duration: float | None = None,
+        fade_in: float = 0,
+        fade_out: float = 0,
     ) -> None:
-        super().__init__()
+        super().__init__(fade_in=fade_in, fade_out=fade_out)
         if not os.path.exists(device):
             raise FileNotFoundError(
                 f"No webcam found at {device}. Is a camera connected?"
@@ -222,4 +227,5 @@ class WebcamSegment(SegmentBase):
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
         cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
+        cmd = self._append_fade_filters(cmd)
         return cmd

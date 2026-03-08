@@ -34,8 +34,9 @@ class BrowserSegment(SegmentBase):
 
     _log_name = "Browser"
 
-    def __init__(self, url: str, duration: float | None = None) -> None:
-        super().__init__()
+    def __init__(self, url: str, duration: float | None = None,
+                 fade_in: float = 0, fade_out: float = 0) -> None:
+        super().__init__(fade_in=fade_in, fade_out=fade_out)
         if "://" not in url:
             url = "https://" + url
         self.url = url
@@ -60,6 +61,7 @@ class BrowserSegment(SegmentBase):
         if self.duration is not None:
             cmd += ["-t", str(self.duration)]
         cmd += config.ffmpeg_output_args(pix_fmt="yuv420p")
+        cmd = self._append_fade_filters(cmd)
         return cmd
 
     def start(self) -> None:

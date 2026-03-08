@@ -34,6 +34,9 @@ MAX_BUFFER_LEAD = 10            # max seconds of content-time ahead of TV playba
 # ── Aspect ratio correction ──
 ASPECT: float = 1.0  # 1.0=no change, >1.0=wider, <1.0=narrower
 
+# ── Fade transition ──
+FADE_DURATION: float = 1.0  # seconds for fade in/out (0 = disabled)
+
 # ── YouTube format mode ──
 YOUTUBE_DEFAULT: bool = False  # True = use single muxed stream, skip DASH+audio download
 

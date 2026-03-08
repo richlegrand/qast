@@ -24,7 +24,7 @@ from ..serve.server import StreamServer
 from .master import MasterMuxer
 from .placeholder import PlaceholderSegment
 from .ringbuf import RingBuffer
-from .segment import SegmentFFmpeg
+from .segment import SegmentBase, SegmentFFmpeg
 from .tsrewrite import TSRewriter
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ _TICKS_PER_FRAME = 90_000 // int(config.VIDEO_FPS)
 class _PrewarmState:
     """Result from the prewarm worker thread."""
     item: object | None       # ResolvedURL or None (queue exhausted)
-    segment: SegmentFFmpeg | None  # None = not pre-warmable or failed
+    segment: SegmentBase | None  # None = not pre-warmable or failed
     first_chunk: bytes | None
     label: str
 
@@ -331,12 +331,19 @@ class Pipeline:
                                                      first_chunk=None, label="")
                 return
 
-            pre_warmable = item.capture is None and not item.is_live
+            pre_warmable = (item.capture is None or item.capture == "browser") and not item.is_live
             if pre_warmable:
-                seg = SegmentFFmpeg(
-                    item.source_urls, is_live=False, duration=item.duration,
-                    aspect=config.ASPECT, has_audio=item.has_audio,
-                )
+                if item.capture == "browser":
+                    from .browser import BrowserSegment
+                    url = item.source_urls[0] if item.source_urls else ""
+                    seg = BrowserSegment(url, duration=item.duration,
+                                         fade_in=config.FADE_DURATION, fade_out=config.FADE_DURATION)
+                else:
+                    seg = SegmentFFmpeg(
+                        item.source_urls, is_live=False, duration=item.duration,
+                        aspect=config.ASPECT, has_audio=item.has_audio,
+                        fade_in=config.FADE_DURATION, fade_out=config.FADE_DURATION,
+                    )
                 if self._shutdown_event.is_set():
                     self._prewarm_state = _PrewarmState(
                         item=item, segment=None, first_chunk=None,
@@ -605,12 +612,15 @@ class Pipeline:
                     if item.capture:
                         seg = self._create_capture_segment(item)
                     else:
+                        # Fade for non-live segments with known duration
+                        fade = config.FADE_DURATION if (not item.is_live and item.duration) else 0
                         seg = SegmentFFmpeg(
                             item.source_urls,
                             is_live=item.is_live,
                             duration=item.duration,
                             aspect=config.ASPECT,
                             has_audio=item.has_audio,
+                            fade_in=fade, fade_out=fade,
                         )
 
                     # Per-item placeholder: preroll only forces the loading screen
@@ -724,8 +734,10 @@ class Pipeline:
 
     def _create_capture_segment(self, item) -> ScreenSegment | WebcamSegment:
         """Create a capture segment from a ResolvedURL with capture config."""
+        fade = config.FADE_DURATION if item.duration else 0
         if item.capture == "screen":
-            return ScreenSegment(cursor=item.cursor, duration=item.duration)
+            return ScreenSegment(cursor=item.cursor, duration=item.duration,
+                                 fade_in=fade, fade_out=fade)
         elif item.capture == "window":
             if item.window_title:
                 wid, w, h = _find_window_by_title(item.window_title)
@@ -736,13 +748,16 @@ class Pipeline:
                 window_id=wid,
                 window_size=(w, h),
                 duration=item.duration,
+                fade_in=fade, fade_out=fade,
             )
         elif item.capture == "webcam":
-            return WebcamSegment(duration=item.duration)
+            return WebcamSegment(duration=item.duration,
+                                fade_in=fade, fade_out=fade)
         elif item.capture == "browser":
             from .browser import BrowserSegment
             url = item.source_urls[0] if item.source_urls else ""
-            return BrowserSegment(url, duration=item.duration)
+            return BrowserSegment(url, duration=item.duration,
+                                  fade_in=fade, fade_out=fade)
         else:
             raise ValueError(f"Unknown capture type: {item.capture}")
 
